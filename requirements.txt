@@ -1,0 +1,9 @@
+tensorflow==2.15.0
+fastapi
+uvicorn
+joblib
+scikit-learn
+pandas
+numpy>=1.23.5,<2.0
+matplotlib
+seaborn

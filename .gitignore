@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac
+.DS_Store
+
+# Models (optional - keep or remove based on size)
+*.h5
+
+# Large files
+*.pkl
+
+# VS Code
+.vscode/
+
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Model files (optional but recommended)
+*.pkl
+*.h5
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
