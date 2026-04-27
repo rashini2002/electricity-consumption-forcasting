@@ -1,6 +1,7 @@
 import {
   LineChart,
   Line,
+  Area,
   BarChart,
   Bar,
   PieChart,
@@ -55,8 +56,8 @@ export default function RightPane({
     : [];
 
   const peakData = [
-    { name: "Peak Usage", value: peakRatio * 100, color: peakRatio > 0.65 ? "#D44040" : "#E8A020" },
-    { name: "Off-Peak", value: (1 - peakRatio) * 100, color: "#1DB8A0" },
+    { name: "Peak Usage", value: peakRatio * 100 },
+    { name: "Off-Peak", value: (1 - peakRatio) * 100 },
   ];
 
   const applianceInsightRaw = [
@@ -66,15 +67,16 @@ export default function RightPane({
     { name: "Laundry", value: behavior.has_washing_machine ? 1.4 : 0, color: "#7DC42B" },
     { name: "Water Pump", value: behavior.has_water_pump ? 1.8 : 0, color: "#7A8CFF" },
     { name: "WFH Load", value: behavior.work_from_home ? Math.max(Number(behavior.avg_hours_wfh || 0) * 0.45, 1) : 0, color: "#C15DD8" },
-    { name: "Lighting", value: Math.max((1 - ledRatio) * 2.5, 0.6), color: "#B0B8A0" },
+    { name: "Lighting", value: Math.max((1 - ledRatio) * 2.5, 0.6), color: "#06b6d4" },
   ];
 
   const applianceInsightData = applianceInsightRaw.filter((d) => d.value > 0.01);
 
+  const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4"]; 
   const billBreakdownPie = slabs.map((s, i) => ({
     name: s.slab,
     value: Number(s.charge_lkr || 0),
-    color: ["#7DC42B", "#1DB8A0", "#4AB0CF", "#7A8CFF", "#E8A020", "#D44040"][i % 6],
+    color: COLORS[i % COLORS.length],
   }));
 
   return (
@@ -139,27 +141,35 @@ export default function RightPane({
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={histData} margin={{ left: -16, right: 10, top: 6, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorKwh" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.06)" />
-                    <XAxis dataKey="name" fontSize={9} tick={{ fill: "#8A9E84" }} stroke="none" />
-                    <YAxis fontSize={9} tick={{ fill: "#8A9E84" }} stroke="none" unit=" kWh" />
+                    <XAxis dataKey="name" fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" />
+                    <YAxis fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" unit=" kWh" />
                     <Tooltip content={<ChartTip unit="kWh" />} />
                     <ReferenceLine y={forecast.prediction_kwh} stroke="rgba(125,196,43,.3)" strokeDasharray="4 3" />
+                    <Area type="monotone" dataKey="kwh" stroke="none" fill="url(#colorKwh)" />
                     <Line
                       type="monotone"
                       dataKey="kwh"
-                      stroke="#1DB8A0"
-                      strokeWidth={2}
-                      dot={{ r: 4, fill: "#1DB8A0", strokeWidth: 0 }}
+                      stroke="#22d3ee"
+                      strokeWidth={3}
+                      dot={{ r: 5 }}
+                      activeDot={{ r: 7 }}
                       connectNulls={false}
                       name="Actual"
                     />
                     <Line
                       type="monotone"
                       dataKey="pred"
-                      stroke="#7DC42B"
+                      stroke="#3b82f6"
                       strokeWidth={2}
                       strokeDasharray="5 4"
-                      dot={{ r: 5, fill: "#7DC42B", strokeWidth: 2, stroke: "#fff" }}
+                      dot={{ r: 5, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }}
                       name="Predicted"
                     />
                   </LineChart>
@@ -175,13 +185,19 @@ export default function RightPane({
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={peakData} margin={{ left: -16, right: 10, top: 6, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradPeak" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#f59e0b" />
+                        <stop offset="100%" stopColor="#22d3ee" />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.06)" />
-                    <XAxis dataKey="name" fontSize={9} tick={{ fill: "#8A9E84" }} stroke="none" />
-                    <YAxis fontSize={9} tick={{ fill: "#8A9E84" }} stroke="none" unit="%" domain={[0, 100]} />
+                    <XAxis dataKey="name" fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" />
+                    <YAxis fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" unit="%" domain={[0, 100]} />
                     <Tooltip content={<ChartTip unit="%" />} />
-                    <Bar dataKey="value" name="Share" radius={[4, 4, 0, 0]}>
-                      {peakData.map((d) => (
-                        <Cell key={d.name} fill={d.color} />
+                    <Bar dataKey="value" name="Share" radius={[12, 12, 12, 12]} fill="url(#gradPeak)">
+                      {peakData.map((d, i) => (
+                        <Cell key={d.name} />
                       ))}
                     </Bar>
                   </BarChart>
