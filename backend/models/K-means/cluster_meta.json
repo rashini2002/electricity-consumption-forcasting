@@ -1,0 +1,17 @@
+{
+  "cluster_labels": {
+    "1": "Efficient",
+    "0": "Moderate",
+    "2": "High Usage"
+  },
+  "cluster_features": [
+    "family_size",
+    "avg_hours_wfh",
+    "ac_usage",
+    "energy_intensity",
+    "has_ac",
+    "ac_hours_per_day"
+  ],
+  "n_clusters": 3,
+  "silhouette_score": 0.4402
+}

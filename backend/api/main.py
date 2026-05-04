@@ -6,6 +6,7 @@ Endpoints:
   GET  /model-info    → model metadata
   POST /predict       → single household forecast
   POST /predict/what-if → scenario comparison
+  POST /recommendations → high-strength personalized recommendations
 """
 
 import logging
@@ -25,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 # Import predictor only from this repository.
 from backend.src.predict import full_prediction
 from backend.src.predict import set_models
+from backend.api.recommendations import generate_recommendations
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -330,6 +332,61 @@ def what_if(data: WhatIfRequest):
     except Exception as exc:
         logger.exception("What-if error")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/recommendations")
+def recommendations(data: InputData):
+    """
+    Generate high-strength personalized recommendations based on:
+    - Predicted consumption
+    - Household behavior & appliances
+    - Consumption drivers
+    - Savings opportunities
+
+    Returns prioritized recommendations with estimated impact.
+    """
+    _ensure_loaded()
+
+    try:
+        logger.info("Processing recommendation request")
+        
+        # Get prediction
+        prediction = full_prediction(
+            prev_values=data.prev_values(),
+            behavior_values=data.behavior_values(),
+        )
+
+        forecast_kwh = prediction["forecast"]["prediction_kwh"]
+        cluster_id = prediction.get("cluster_id", 0)
+
+        if forecast_kwh < 0:
+            raise ValueError(f"Invalid forecast: {forecast_kwh} kWh")
+
+        # Generate recommendations
+        recs = generate_recommendations(
+            forecast_kwh=forecast_kwh,
+            behavior=data.behavior_values(),
+            cluster_id=cluster_id,
+        )
+
+        logger.info(f"Generated {len(recs.recommendations)} recommendations")
+
+        return {
+            "status": "success",
+            "recommendations": recs,
+            "forecast": prediction["forecast"],
+            "billing": prediction["billing"],
+        }
+
+    except ValueError as exc:
+        logger.error(f"Validation error: {exc}")
+        raise HTTPException(status_code=422, detail=str(exc))
+    except KeyError as exc:
+        logger.error(f"Missing prediction field: {exc}")
+        raise HTTPException(status_code=500, detail=f"Prediction format error: {exc}")
+    except Exception as exc:
+        logger.exception("Recommendation generation error")
+        raise HTTPException(status_code=500, detail=f"Recommendation error: {str(exc)}")
 
 
 @app.get("/favicon.ico")
