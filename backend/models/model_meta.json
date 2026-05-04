@@ -1,0 +1,21 @@
+{
+  "time_features": [
+    "monthly_kwh",
+    "month_sin",
+    "month_cos"
+  ],
+  "behavior_features": [
+    "ac_usage",
+    "wfh_impact",
+    "energy_intensity"
+  ],
+  "seq_len": 3,
+  "n_time_features": 3,
+  "n_behavior_features": 3,
+  "metrics": {
+    "mae_kwh": 15.62,
+    "rmse_kwh": 22.67,
+    "wmape_pct": 15.17,
+    "r2": 0.8024
+  }
+}
