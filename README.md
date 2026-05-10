@@ -103,12 +103,14 @@ Final prediction pipeline:
 A modern dashboard panel is available in the `frontend/` folder:
 
 - `frontend/index.html`
-- `frontend/styles.css`
-- `frontend/app.js`
+- `frontend/main.jsx`
+- `frontend/App.jsx`
+- `frontend/src/components/Dashboard.jsx`
+- `frontend/src/services/api.js`
 
 ### Features
 
-- Baseline forecast form with validated inputs
+- Six-month forecast form with validated inputs
 - Forecast + bill + risk cards
 - Recommendation and top-driver visualization
 - What-if simulator powered by `/predict/what-if`
@@ -117,14 +119,15 @@ A modern dashboard panel is available in the `frontend/` folder:
 ### Run Frontend Locally
 
 1. Start backend API (FastAPI) on `http://127.0.0.1:8000`
-2. Serve frontend folder:
+2. Install and run the Vite frontend:
 
 ```bash
 cd frontend
-python3 -m http.server 5500
+npm install
+npm run dev
 ```
 
-3. Open `http://127.0.0.1:5500`
+3. Open the Vite URL shown in the terminal, usually `http://127.0.0.1:5173`
 
 The panel has an editable API base URL at the top-right if your backend is hosted elsewhere.
 
@@ -143,7 +146,11 @@ Example request body:
   "prev1_kwh": 210.0,
   "prev2_kwh": 198.0,
   "prev3_kwh": 205.5,
+  "prev4_kwh": 192.4,
+  "prev5_kwh": 188.1,
+  "prev6_kwh": 176.8,
   "peak_ratio": 0.62,
+  "month": 5,
   "family_size": 4,
   "has_refrigerator": true,
   "has_ac": true,
@@ -155,8 +162,6 @@ Example request body:
   "temp": 31.2,
   "humidity": 78.0,
   "rain": 42.0,
-  "month_sin": 0.5,
-  "month_cos": 0.86,
   "district": "Colombo"
 }
 ```

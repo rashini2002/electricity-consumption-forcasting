@@ -12,9 +12,11 @@ export const MONTH_NAMES = [
 ];
 
 export const CLUSTER_STYLE = {
-  "Energy Efficient": { color: "#1DB8A0", bg: "rgba(29,184,160,.1)" },
+  Efficient: { color: "#1DB8A0", bg: "rgba(29,184,160,.1)" },
   Moderate: { color: "#7DC42B", bg: "rgba(125,196,43,.1)" },
-  "High Appliance": { color: "#E8A020", bg: "rgba(232,160,32,.1)" },
+  "High Usage": { color: "#D44040", bg: "rgba(212,64,64,.1)" },
+  "Energy Efficient": { color: "#1DB8A0", bg: "rgba(29,184,160,.1)" },
+  "High Appliance": { color: "#D44040", bg: "rgba(212,64,64,.1)" },
   "Peak Heavy": { color: "#D44040", bg: "rgba(212,64,64,.1)" },
 };
 

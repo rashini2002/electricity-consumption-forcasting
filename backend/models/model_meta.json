@@ -1,21 +1,40 @@
 {
   "time_features": [
     "monthly_kwh",
-    "month_sin",
-    "month_cos"
+    "month",
+    "lag_1",
+    "lag_2",
+    "lag_3"
   ],
   "behavior_features": [
     "ac_usage",
     "wfh_impact",
-    "energy_intensity"
+    "energy_intensity",
+    "ac_fraction"
   ],
-  "seq_len": 3,
-  "n_time_features": 3,
-  "n_behavior_features": 3,
+  "seq_len": 6,
+  "n_time_features": 5,
+  "n_behavior_features": 4,
+  "calibration": {
+    "blend_alpha": 0.44999999999999996,
+    "blend_scale": 0.92,
+    "blend_bias_kwh": -5.004886627197266,
+    "tier_edges": [
+      0.0,
+      92.86036682128906,
+      149.19329833984375,
+      Infinity
+    ],
+    "tier_biases": [
+      0.014781951904296875,
+      0.5709915161132812,
+      -0.7568206787109375
+    ]
+  },
   "metrics": {
-    "mae_kwh": 15.62,
-    "rmse_kwh": 22.67,
-    "wmape_pct": 15.17,
-    "r2": 0.8024
+    "mae_kwh": 12.46,
+    "rmse_kwh": 20.48,
+    "wmape_pct": 12.08,
+    "r2": 0.8704
   }
 }

@@ -48,6 +48,9 @@ export default function RightPane({
 
   const histData = result
     ? [
+        { name: "6 Mo Ago", kwh: Number(kwh.p6) || 0 },
+        { name: "5 Mo Ago", kwh: Number(kwh.p5) || 0 },
+        { name: "4 Mo Ago", kwh: Number(kwh.p4) || 0 },
         { name: "3 Mo Ago", kwh: Number(kwh.p3) || 0 },
         { name: "2 Mo Ago", kwh: Number(kwh.p2) || 0 },
         { name: "Last Mo", kwh: Number(kwh.p1) || 0 },
@@ -86,7 +89,7 @@ export default function RightPane({
           <div className="empty-graphic">⚡</div>
           <h3>No forecast generated yet</h3>
           <p>
-            Complete the 3 steps on the left — enter your last 3 months of kWh,
+            Complete the 3 steps on the left — enter your last 6 months of kWh,
             select your target month and district, add household details, then click
             Generate Forecast.
           </p>

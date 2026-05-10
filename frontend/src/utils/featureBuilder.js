@@ -13,16 +13,15 @@ export function calcLedRatio(ledCount, totalCount) {
 }
 
 export function buildDashboardPayload({ kwh, month, district, weather, behavior, peakRatio, ledRatio }) {
-  const month_sin = Math.sin((2 * Math.PI * month) / 12);
-  const month_cos = Math.cos((2 * Math.PI * month) / 12);
-
   return {
     prev1_kwh: Number(kwh.p1),
     prev2_kwh: Number(kwh.p2),
     prev3_kwh: Number(kwh.p3),
+    prev4_kwh: Number(kwh.p4),
+    prev5_kwh: Number(kwh.p5),
+    prev6_kwh: Number(kwh.p6),
+    month,
     peak_ratio: peakRatio,
-    month_sin,
-    month_cos,
     temp: weather?.temp ?? 29,
     humidity: weather?.humidity ?? 75,
     rain: weather?.rain ?? 0,
@@ -50,6 +49,7 @@ export function buildDashboardPayload({ kwh, month, district, weather, behavior,
 export function normalizeWhatIfOverrides(overrides) {
   return {
     ...overrides,
+    month: overrides.month ?? undefined,
     has_solar: overrides.has_solar ? true : undefined,
     inverter_ac: overrides.inverter_ac ? true : undefined,
     work_from_home: overrides.work_from_home ? true : undefined,

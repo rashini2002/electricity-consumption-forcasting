@@ -41,10 +41,17 @@ export default function LeftPane({
 
         <div className={`step-content ${openStep === 1 ? "open" : ""}`}>
           <p className="hint" style={{ marginBottom: 12 }}>
-            Enter kWh from your last 3 electricity bills. The system automatically calculates peak ratio.
+            Enter kWh from your last 6 electricity bills. The system automatically calculates peak ratio.
           </p>
           <div className="grid-3" style={{ marginBottom: 12 }}>
-            {[ ["p3", "3 Months Ago"], ["p2", "2 Months Ago"], ["p1", "Last Month"] ].map(([k, lbl]) => (
+            {[
+              ["p6", "6 Months Ago"],
+              ["p5", "5 Months Ago"],
+              ["p4", "4 Months Ago"],
+              ["p3", "3 Months Ago"],
+              ["p2", "2 Months Ago"],
+              ["p1", "Last Month"],
+            ].map(([k, lbl]) => (
               <div className="field" key={k}>
                 <div className="label">{lbl}</div>
                 <input

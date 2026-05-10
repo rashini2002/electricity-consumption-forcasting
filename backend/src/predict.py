@@ -1,86 +1,67 @@
 """
-predict.py — Full prediction pipeline for Hybrid LSTM + K-Means model.
+predict.py — Production prediction pipeline for the hybrid LSTM + K-Means model.
 
-Exact pipeline from lstm.ipynb:
-    - TIME_FEATURES   : 11 features (prev1-3, derived, seasonal)
-    - BEHAVIOR_FEATURES: 18 features (household + interaction terms)
-    - CLUSTER_FEATURES : 5 features
-    - scaler_time     : MinMaxScaler (fits on flattened time matrix)
-    - scaler_beh      : StandardScaler
-    - scaler_y        : MinMaxScaler on raw kWh target
-    - Inverse         : scaler_y.inverse → kWh
-    - Calibration     : optional isotonic calibration on validation set
+Current serving contract matches the cleaned notebook and saved artifacts:
+    - TIME_FEATURES    : monthly_kwh, month, lag_1, lag_2, lag_3
+    - BEHAVIOR_FEATURES: ac_usage, wfh_impact, energy_intensity, ac_fraction
+    - SEQ_LEN           : 6 months of history
+    - Calibration       : validation-tuned blend + tier bias correction
 """
 
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import joblib
 import numpy as np
 import tensorflow as tf
-from sklearn.isotonic import IsotonicRegression
 
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────
-# EXACT feature lists from Cell 10 of lstm.ipynb
+# Feature lists from the cleaned training notebook
 # ──────────────────────────────────────────────────────────────────
 TIME_FEATURES = [
-    "prev1",
-    "prev2",
-    "prev3",
-    "prev_mean_3",
-    "prev_std_3",
-    "prev_trend",
-    "peak_ratio",
-    "month_sin",
-    "month_cos",
-    "consumption_variability",   # std / (mean + eps)
-    "trend_strength",            # prev_trend * prev_mean_3
+    "monthly_kwh",
+    "month",
+    "lag_1",
+    "lag_2",
+    "lag_3",
 ]
 
 BEHAVIOR_FEATURES = [
-    "family_size",
-    "district_enc",
-    "ac_intensity",              # has_ac * ac_hours_per_day
-    "appliance_score",           # weighted appliance sum
-    "inverter_ac",
-    "non_inverter_ac",
-    "has_solar",
-    "water_heater_solar",
-    "led_ratio",
-    "work_from_home",
-    "avg_hours_wfh",
-    "has_refrigerator",
-    "has_electric_cooking",
-    "temp_usage",                # temp * prev_mean_3
-    "humidity_usage",            # humidity * prev_mean_3
-    "log_prev_mean",             # log1p(prev_mean_3)
-    "log_appliance",             # log1p(appliance_score)
-    "energy_behavior_index",     # appliance_score + wfh_load + peak_ratio*10 + family_size
+    "ac_usage",
+    "wfh_impact",
+    "energy_intensity",
+    "ac_fraction",
 ]
-
-# Optional enriched columns appended during training if present
-OPTIONAL_FEATURES = ["room_count", "load_variance", "tou_aware"]
 
 CLUSTER_FEATURES = [
     "family_size",
-    "ac_intensity",
-    "appliance_score",
     "avg_hours_wfh",
-    "peak_ratio",
+    "ac_usage",
+    "energy_intensity",
+    "has_ac",
+    "ac_hours_per_day",
 ]
 
 CLUSTER_LABELS = {
-    0: "Energy Efficient",
-    1: "Moderate",
-    2: "High Appliance",
-    3: "Peak Heavy",
+    0: "Moderate",
+    1: "Efficient",
+    2: "High Usage",
 }
 
-SEQ_LEN = 3
+SEQ_LEN = 6
+
+TIME_SCALE_FEATURE_IDXS = [0, 2, 3, 4]
+TIME_FEATURE_WEIGHTS = {
+    "monthly_kwh": 1.25,
+    "month": 0.90,
+    "lag_1": 1.35,
+    "lag_2": 1.15,
+    "lag_3": 1.10,
+}
 
 # CEB 2024 domestic tariff — 6 slabs (Cell 32)
 CEB_SLABS = [
@@ -100,13 +81,23 @@ _scaler_time   = None
 _scaler_beh    = None
 _scaler_y      = None
 _scaler_cluster= None
-_le_district   = None
 _kmeans        = None
-_iso_cal       = None       # isotonic calibrator (optional)
 _cluster_labels= None
 _cluster_features = None
 _meta          = None
 _mae           = 26.0       # default from notebook Cell 22 output
+BLEND_ALPHA = 1.0
+BLEND_SCALE = 1.0
+BLEND_BIAS_KWH = 0.0
+VAL_TIER_EDGES = np.asarray([0.0, np.inf], dtype=np.float32)
+VAL_TIER_BIASES = np.asarray([0.0], dtype=np.float32)
+
+
+def _load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    with open(path) as handle:
+        return json.load(handle)
 
 
 def set_models(base_dir: Optional[Path] = None) -> None:
@@ -115,8 +106,10 @@ def set_models(base_dir: Optional[Path] = None) -> None:
     Called once at FastAPI startup.
     """
     global _model, _scaler_time, _scaler_beh, _scaler_y
-    global _scaler_cluster, _le_district, _kmeans
-    global _iso_cal, _cluster_labels, _cluster_features, _meta, _mae
+    global _scaler_cluster, _kmeans
+    global _cluster_labels, _cluster_features, _meta, _mae
+    global BLEND_ALPHA, BLEND_SCALE, BLEND_BIAS_KWH
+    global VAL_TIER_EDGES, VAL_TIER_BIASES
 
     if base_dir is None:
         current = Path(__file__).resolve()
@@ -129,45 +122,33 @@ def set_models(base_dir: Optional[Path] = None) -> None:
     kmeans_dir = base_dir / "models" / "K-means"
     meta_path = base_dir / "models" / "model_meta.json"
 
-    # Prefer .h5 first. The existing .keras artifact was produced with a newer
-    # Keras serialization format and can fail to deserialize under tf.keras 2.15.
-    model_candidates = [lstm_dir / "lstm_model.h5", lstm_dir / "lstm_model.keras"]
-    load_errors = []
-    _model = None
+    model_candidates = [lstm_dir / "lstm_model.keras", lstm_dir / "lstm_model.h5"]
+    model_path = next((path for path in model_candidates if path.exists()), None)
+    if model_path is None:
+        raise RuntimeError(f"Model file not found: {model_candidates[0]}")
 
-    for model_path in model_candidates:
-        if not model_path.exists():
-            continue
-        logger.info("Loading LSTM model from %s", model_path)
-        try:
-            _model = tf.keras.models.load_model(
-                str(model_path),
-                compile=False,
-                custom_objects={
-                    "Orthogonal": tf.keras.initializers.Orthogonal,
-                },
-            )
-            break
-        except Exception as exc:
-            load_errors.append(f"{model_path.name}: {exc}")
-
-    if _model is None:
-        details = "; ".join(load_errors) if load_errors else "No model artifact found"
-        raise RuntimeError(f"Unable to load LSTM model. {details}")
+    logger.info("Loading LSTM model from %s", model_path)
+    _model = tf.keras.models.load_model(str(model_path), compile=False)
 
     # ── Scalers ──
-    _scaler_time    = joblib.load(lstm_dir / "scaler_time.pkl")
-    _scaler_beh     = joblib.load(lstm_dir / "scaler_beh.pkl")
+    _scaler_time    = joblib.load(lstm_dir / "scaler_x.pkl")
+    _scaler_beh     = joblib.load(lstm_dir / "scaler_b.pkl")
     _scaler_y       = joblib.load(lstm_dir / "scaler_y.pkl")
     _scaler_cluster = joblib.load(kmeans_dir / "scaler_cluster.pkl")
-    _le_district    = joblib.load(base_dir / "models" / "le_district.pkl")
     _kmeans         = joblib.load(kmeans_dir / "kmeans_model.pkl")
 
-    # ── Optional isotonic calibrator ──
-    iso_path = lstm_dir / "iso_calibrator.pkl"
-    if iso_path.exists():
-        _iso_cal = joblib.load(iso_path)
-        logger.info("Isotonic calibrator loaded")
+    # ── Calibration metadata ──
+    calibration_path = lstm_dir / "calibration_meta.json"
+    calibration_meta = _load_json(calibration_path)
+    if calibration_meta:
+        BLEND_ALPHA = float(calibration_meta.get("blend_alpha", BLEND_ALPHA))
+        BLEND_SCALE = float(calibration_meta.get("blend_scale", BLEND_SCALE))
+        BLEND_BIAS_KWH = float(calibration_meta.get("blend_bias_kwh", BLEND_BIAS_KWH))
+        tier_edges = calibration_meta.get("tier_edges", [0.0, np.inf])
+        tier_biases = calibration_meta.get("tier_biases", [0.0])
+        VAL_TIER_EDGES = np.asarray(tier_edges, dtype=np.float32)
+        VAL_TIER_BIASES = np.asarray(tier_biases, dtype=np.float32)
+        logger.info("Calibration metadata loaded from %s", calibration_path)
 
     # ── Cluster feature list (may differ if optional cols were added) ──
     cf_path = kmeans_dir / "cluster_feature_list.pkl"
@@ -177,19 +158,23 @@ def set_models(base_dir: Optional[Path] = None) -> None:
         _cluster_features = CLUSTER_FEATURES[:]
 
     # ── Cluster labels from meta ──
+    cluster_meta_path = kmeans_dir / "cluster_meta.json"
     if meta_path.exists():
         with open(meta_path) as f:
             _meta = json.load(f)
         raw_labels = _meta.get("cluster_labels", {})
         _cluster_labels = {int(k): v for k, v in raw_labels.items()}
         _mae = _meta.get("metrics", {}).get("mae_kwh", 26.0)
+    elif cluster_meta_path.exists():
+        cluster_meta = _load_json(cluster_meta_path)
+        raw_labels = cluster_meta.get("cluster_labels", {})
+        _cluster_labels = {int(k): v for k, v in raw_labels.items()}
     else:
         _cluster_labels = CLUSTER_LABELS.copy()
 
     logger.info(
         "All artifacts loaded. TIME=%d BEH=%d CLUSTER=%d SEQ=%d MAE=%.2f",
-        len(TIME_FEATURES), len(BEHAVIOR_FEATURES),
-        len(_cluster_features), SEQ_LEN, _mae,
+        len(TIME_FEATURES), len(BEHAVIOR_FEATURES), len(_cluster_features), SEQ_LEN, _mae,
     )
 
 
@@ -197,109 +182,74 @@ def set_models(base_dir: Optional[Path] = None) -> None:
 # INTERNAL HELPERS
 # ──────────────────────────────────────────────────────────────────
 
-def _encode_district(district: Optional[str]) -> int:
-    """Encode district string → integer. Unknown → 0."""
-    if _le_district is None or not district:
-        return 0
-    try:
-        return int(_le_district.transform([district.strip()])[0])
-    except ValueError:
-        return 0
+def _normalize_month(month_num: int) -> int:
+    month_num = int(month_num or 1)
+    month_num %= 12
+    return 12 if month_num == 0 else month_num
 
 
-def _derive_time_features(p1: float, p2: float, p3: float,
-                           peak_ratio: float,
-                           month_num: int) -> list:
-    """
-    Build the 11 TIME_FEATURES from raw kWh values.
-    Mirrors Cell 8 + Cell 34 of the notebook exactly.
-    """
-    pm3  = np.mean([p1, p2, p3])
-    pstd = np.std([p1, p2, p3])
-    ptr  = p1 - p3
-    msin = np.sin(2 * np.pi * month_num / 12)
-    mcos = np.cos(2 * np.pi * month_num / 12)
-    cv   = pstd / (pm3 + 1e-5)   # consumption_variability
-    ts   = ptr * pm3              # trend_strength
+def _build_time_sequence(history_values: Sequence[float], month_num: int) -> np.ndarray:
+    """Build a 6x5 time matrix from the latest monthly history."""
+    history = [float(value) for value in history_values]
+    if len(history) != SEQ_LEN:
+        raise ValueError(f"Expected {SEQ_LEN} months of history, got {len(history)}")
 
-    return [p1, p2, p3, pm3, pstd, ptr, peak_ratio, msin, mcos, cv, ts]
+    oldest_to_newest = list(reversed(history))
+    rows: list[list[float]] = []
+    for idx, monthly_kwh in enumerate(oldest_to_newest):
+        month_value = _normalize_month(month_num - SEQ_LEN + idx)
+        rows.append([
+            monthly_kwh,
+            float(month_value),
+            oldest_to_newest[idx - 1] if idx >= 1 else 0.0,
+            oldest_to_newest[idx - 2] if idx >= 2 else 0.0,
+            oldest_to_newest[idx - 3] if idx >= 3 else 0.0,
+        ])
 
-
-def _derive_behavior_features(
-    raw: dict,
-    dist_enc: int,
-    pm3: float,
-    pstd: float,
-) -> list:
-    """
-    Build the 18 BEHAVIOR_FEATURES from the raw user input dict.
-    Mirrors Cell 8 (feature engineering) + Cell 34 exactly.
-    """
-    g = raw.get  # shorthand
-
-    has_ac              = float(g("has_ac", 0))
-    ac_hours            = float(g("ac_hours_per_day", 0))
-    has_geyser          = float(g("has_geyser", 0))
-    has_washing_machine = float(g("has_washing_machine", 0))
-    has_water_pump      = float(g("has_water_pump", 0))
-    family_size         = float(g("family_size", 4))
-    avg_hours_wfh       = float(g("avg_hours_wfh", 0))
-    no_members_wfh      = float(g("no_members_wfh", 0))
-    peak_ratio          = float(g("peak_ratio", 0.5))
-    temp                = float(g("temp", 29.0))
-    humidity            = float(g("humidity", 75.0))
-    inverter_ac         = float(g("inverter_ac", 0))
-    non_inverter_ac     = float(g("non_inverter_ac", 0))
-    has_solar           = float(g("has_solar", 0))
-    wh_solar            = float(g("water_heater_solar", 0))
-    led_ratio           = float(g("led_ratio", 0.0))
-    work_from_home      = float(g("work_from_home", 0))
-    has_refrigerator    = float(g("has_refrigerator", 0))
-    has_elec_cooking    = float(g("has_electric_cooking", 0))
-
-    # Interaction features — exact formulas from Cell 8
-    ac_intensity        = has_ac * ac_hours
-    appliance_score     = has_ac * 3 + has_geyser * 2 + has_washing_machine * 1.5 + has_water_pump * 2
-    wfh_load            = avg_hours_wfh * no_members_wfh
-    temp_usage          = temp * pm3
-    humidity_usage      = humidity * pm3
-    log_prev_mean       = np.log1p(pm3)
-    log_appliance       = np.log1p(appliance_score)
-    energy_beh_index    = appliance_score + wfh_load + peak_ratio * 10 + family_size
-
-    return [
-        family_size, dist_enc,
-        ac_intensity, appliance_score,
-        inverter_ac, non_inverter_ac,
-        has_solar, wh_solar,
-        led_ratio, work_from_home, avg_hours_wfh,
-        has_refrigerator, has_elec_cooking,
-        temp_usage, humidity_usage,
-        log_prev_mean, log_appliance,
-        energy_beh_index,
-    ]
+    return np.asarray(rows, dtype=np.float32)
 
 
-def _assign_cluster(raw_beh: dict, pm3: float) -> tuple[int, str]:
+def _scale_time_sequence(time_seq: np.ndarray) -> np.ndarray:
+    scaled = time_seq.astype(np.float32).copy()
+    for idx in TIME_SCALE_FEATURE_IDXS:
+        scaled[:, idx] = _scaler_time.transform(time_seq[:, idx].reshape(-1, 1)).ravel()
+    for idx, feature_name in enumerate(TIME_FEATURES):
+        scaled[:, idx] *= TIME_FEATURE_WEIGHTS.get(feature_name, 1.0)
+    return scaled
+
+
+def _derive_behavior_features(raw: dict, recent_mean_kwh: float) -> list:
+    """Build the 4 BEHAVIOR_FEATURES from the raw user input dict."""
+    family_size = max(float(raw.get("family_size", 4)), 1.0)
+    has_ac = float(raw.get("has_ac", 0))
+    ac_hours = float(raw.get("ac_hours_per_day", 0))
+    avg_hours_wfh = float(raw.get("avg_hours_wfh", 0))
+    ac_usage = has_ac * ac_hours
+    wfh_impact = avg_hours_wfh * family_size
+    energy_intensity = recent_mean_kwh / family_size
+    ac_fraction = ac_usage / recent_mean_kwh if recent_mean_kwh > 0 else 0.0
+    return [ac_usage, wfh_impact, energy_intensity, ac_fraction]
+
+
+def _assign_cluster(raw_beh: dict, recent_mean_kwh: float) -> tuple[int, str]:
     """
     Assign K-Means cluster from behavioral features.
     Uses _cluster_features list loaded from artifact.
     """
-    has_ac    = float(raw_beh.get("has_ac", 0))
-    ac_hours  = float(raw_beh.get("ac_hours_per_day", 0))
-    ac_int    = has_ac * ac_hours
-
-    has_geyser  = float(raw_beh.get("has_geyser", 0))
-    has_wm      = float(raw_beh.get("has_washing_machine", 0))
-    has_wp      = float(raw_beh.get("has_water_pump", 0))
-    app_score   = has_ac * 3 + has_geyser * 2 + has_wm * 1.5 + has_wp * 2
+    family_size = float(raw_beh.get("family_size", 4))
+    avg_hours_wfh = float(raw_beh.get("avg_hours_wfh", 0))
+    has_ac = float(raw_beh.get("has_ac", 0))
+    ac_hours = float(raw_beh.get("ac_hours_per_day", 0))
+    ac_usage = has_ac * ac_hours
+    energy_intensity = recent_mean_kwh / max(family_size, 1.0)
 
     feature_map = {
-        "family_size":    float(raw_beh.get("family_size", 4)),
-        "ac_intensity":   ac_int,
-        "appliance_score":app_score,
-        "avg_hours_wfh":  float(raw_beh.get("avg_hours_wfh", 0)),
-        "peak_ratio":     float(raw_beh.get("peak_ratio", 0.5)),
+        "family_size": float(family_size),
+        "avg_hours_wfh": float(avg_hours_wfh),
+        "ac_usage": float(ac_usage),
+        "energy_intensity": float(energy_intensity),
+        "has_ac": float(has_ac),
+        "ac_hours_per_day": float(ac_hours),
     }
 
     row = np.array([[feature_map.get(f, 0.0) for f in _cluster_features]],
@@ -311,6 +261,16 @@ def _assign_cluster(raw_beh: dict, pm3: float) -> tuple[int, str]:
     cluster_id = int(np.argmin(np.linalg.norm(centers - row_scaled[0], axis=1)))
     cluster_name = (_cluster_labels or CLUSTER_LABELS).get(cluster_id, "Moderate")
     return cluster_id, cluster_name
+
+
+def _apply_product_calibration(model_pred_kwh: np.ndarray, naive_kwh: np.ndarray) -> np.ndarray:
+    model_pred_kwh = np.asarray(model_pred_kwh, dtype=np.float32)
+    naive_kwh = np.asarray(naive_kwh, dtype=np.float32)
+    pred = (BLEND_ALPHA * model_pred_kwh + (1.0 - BLEND_ALPHA) * naive_kwh) * BLEND_SCALE + BLEND_BIAS_KWH
+    tier_ids = np.searchsorted(VAL_TIER_EDGES[1:], naive_kwh, side="right")
+    tier_ids = np.clip(tier_ids, 0, len(VAL_TIER_BIASES) - 1)
+    pred = pred + VAL_TIER_BIASES[tier_ids]
+    return np.clip(pred, 0, None)
 
 
 def _calculate_bill(kwh: float) -> dict:
@@ -377,20 +337,19 @@ def _recommendations(
     return tips[:5]
 
 
-def _top_factors(time_vals: list, beh_vals: dict, pm3: float) -> list[dict]:
+def _top_factors(history_values: Sequence[float], beh_vals: dict, recent_mean_kwh: float) -> list[dict]:
     """Return top contributing factors for the explanation panel."""
     factors = []
-    total = pm3 + 1e-5
+    total = recent_mean_kwh + 1e-5
 
-    # Prev kWh contribution (always dominant)
+    # Recent usage contribution (always dominant)
     factors.append({"label": "Recent usage history",
-                    "contribution_pct": round(min(60, pm3 / total * 60), 1)})
+                    "contribution_pct": round(min(60, recent_mean_kwh / total * 60), 1)})
 
     if beh_vals.get("has_ac"):
         pct = round(min(20, float(beh_vals.get("ac_hours_per_day", 0)) / 12 * 20), 1)
         if pct > 0:
-            label = "Inverter AC" if beh_vals.get("inverter_ac") else "Non-inverter AC"
-            factors.append({"label": label, "contribution_pct": pct})
+            factors.append({"label": "Air conditioning usage", "contribution_pct": pct})
 
     peak = float(beh_vals.get("peak_ratio", 0.5))
     if peak > 0.55:
@@ -418,13 +377,13 @@ def _top_factors(time_vals: list, beh_vals: dict, pm3: float) -> list[dict]:
 # PUBLIC API
 # ──────────────────────────────────────────────────────────────────
 
-def full_prediction(prev_values: list, behavior_values: dict) -> dict:
+def full_prediction(prev_values: Sequence[float], behavior_values: dict) -> dict:
     """
     Run the full prediction pipeline.
 
     Args:
-        prev_values:     [prev1_kwh, prev2_kwh, prev3_kwh]
-                         order: [t-1, t-2, t-3]  (most recent first)
+        prev_values:     [prev1_kwh, ..., prev6_kwh]
+                 order: [t-1, ..., t-6]  (most recent first)
         behavior_values: dict with keys matching InputData.behavior_values()
 
     Returns:
@@ -433,12 +392,9 @@ def full_prediction(prev_values: list, behavior_values: dict) -> dict:
     if _model is None:
         raise RuntimeError("Models not loaded. Call set_models() first.")
 
-    # ── 1. Extract prev kWh ──────────────────────────────────────
-    # prev_values comes from InputData.prev_values() = [prev1, prev2, prev3]
-    # Notebook convention: p1=most recent, p2=one before, p3=oldest
-    p1 = float(prev_values[0])   # t-1 (last month)
-    p2 = float(prev_values[1])   # t-2
-    p3 = float(prev_values[2])   # t-3
+    history_values = [float(value) for value in prev_values]
+    if len(history_values) != SEQ_LEN:
+        raise ValueError(f"Expected {SEQ_LEN} monthly kWh values, got {len(history_values)}")
 
     peak_ratio = float(behavior_values.get("peak_ratio", 0.5))
     month_num  = int(behavior_values.get("month", 6))
@@ -447,33 +403,22 @@ def full_prediction(prev_values: list, behavior_values: dict) -> dict:
     district   = str(behavior_values.get("district", "Colombo")).strip()
 
     # Derived scalars needed across branches
-    pm3  = np.mean([p1, p2, p3])
-    pstd = np.std([p1, p2, p3])
+    recent_mean = float(np.mean(history_values[:3]))
 
-    # ── 2. Build TIME feature row (1 × 11) ──────────────────────
-    time_vals = _derive_time_features(p1, p2, p3, peak_ratio, month_num)
-    time_row  = np.array([time_vals], dtype=np.float32)   # (1, 11)
+    # ── 2. Build TIME feature matrix (6 × 5) ────────────────────
+    time_seq = _build_time_sequence(history_values, month_num)
+    time_row = time_seq[np.newaxis, ...]
 
-    # ── 3. Build BEHAVIOR feature row (1 × 25) ──────────────────
+    # ── 3. Build BEHAVIOR feature row (1 × 4) ───────────────────
     beh_vals = dict(behavior_values)
     beh_vals.update({"temp": temp, "humidity": humidity, "peak_ratio": peak_ratio})
 
-    dist_enc = _encode_district(district)
-    beh_list = _derive_behavior_features(beh_vals, dist_enc, pm3, pstd)
-    beh_row  = np.array([beh_list], dtype=np.float32)   # (1, 25)
+    beh_list = _derive_behavior_features(beh_vals, recent_mean)
+    beh_row  = np.array([beh_list], dtype=np.float32)   # (1, 4)
 
     # ── 4. Scale ─────────────────────────────────────────────────
 
-    seq = [
-    _derive_time_features(p3, p3, p3, peak_ratio, month_num),
-    _derive_time_features(p2, p3, p3, peak_ratio, month_num),
-    _derive_time_features(p1, p2, p3, peak_ratio, month_num),
-    ]
-
-    seq = np.array(seq, dtype=np.float32)
-
-    seq_scaled = _scaler_time.transform(seq)
-
+    seq_scaled = _scale_time_sequence(time_seq)
     t_scaled = seq_scaled.reshape(1, SEQ_LEN, -1)
 
     b_scaled = _scaler_beh.transform(beh_row).astype(np.float32)
@@ -484,12 +429,11 @@ def full_prediction(prev_values: list, behavior_values: dict) -> dict:
     pred_raw = float(_scaler_y.inverse_transform(y_s.reshape(-1, 1))[0][0])
     pred_kwh = float(np.clip(pred_raw, 5.0, 1000.0))
 
-    # ── 6. Optional isotonic calibration ────────────────────────
-    if _iso_cal is not None:
-        pred_kwh = float(np.clip(_iso_cal.transform([pred_kwh])[0], 5.0, 1000.0))
+    # ── 6. Validation-calibrated product inference ───────────────
+    pred_kwh = float(_apply_product_calibration(np.array([pred_kwh]), np.array([history_values[0]]))[0])
 
     # ── 7. Cluster assignment ─────────────────────────────────────
-    cluster_id, cluster_name = _assign_cluster(beh_vals, pm3)
+    cluster_id, cluster_name = _assign_cluster(beh_vals, recent_mean)
 
     # ── 8. Bill ───────────────────────────────────────────────────
     bill = _calculate_bill(pred_kwh)
@@ -503,7 +447,7 @@ def full_prediction(prev_values: list, behavior_values: dict) -> dict:
     # ── 10. Ancillary outputs ─────────────────────────────────────
     risk    = _risk_level(pred_kwh)
     tips    = _recommendations(pred_kwh, cluster_name, beh_vals)
-    factors = _top_factors(time_vals, beh_vals, pm3)
+    factors = _top_factors(history_values, beh_vals, recent_mean)
 
     return {
         "forecast": {

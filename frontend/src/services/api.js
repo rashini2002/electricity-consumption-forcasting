@@ -10,9 +10,11 @@ function resolveInitialApiBase() {
   }
 
   if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    // If frontend runs on a dev port, default to backend on 8000.
-    return `${protocol}//${hostname}:8000`;
+    const { protocol, hostname, origin } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `${protocol}//${hostname}:8000`;
+    }
+    return origin;
   }
 
   return FALLBACK_API_BASE;
@@ -21,7 +23,7 @@ function resolveInitialApiBase() {
 let API_BASE = resolveInitialApiBase();
 
 export function setApiBase(baseUrl) {
-  API_BASE = (baseUrl || "").replace(/\/$/, "") || FALLBACK_API_BASE;
+  API_BASE = (baseUrl || "").trim().replace(/\/$/, "") || FALLBACK_API_BASE;
 }
 
 function buildUrl(path) {

@@ -9,7 +9,9 @@ Endpoints:
   POST /recommendations → high-strength personalized recommendations
 """
 
+import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -40,16 +42,27 @@ app = FastAPI(
     version="1.0.0",
 )
 
+
+def _parse_origins(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+DEFAULT_CORS_ORIGINS = [
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+cors_origins = _parse_origins(os.getenv("GRIDPULSE_CORS_ORIGINS")) or _parse_origins(os.getenv("VITE_APP_ORIGIN")) or DEFAULT_CORS_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,6 +76,13 @@ _loaded     = False
 _load_error: Optional[str] = None
 
 
+def _load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    with open(path) as handle:
+        return json.load(handle)
+
+
 def _ensure_loaded() -> None:
     """Load model artifacts once. Raises HTTPException 503 on failure."""
     global _loaded, _load_error
@@ -73,17 +93,20 @@ def _ensure_loaded() -> None:
     _load_error = None
     required = [
         BASE_DIR / "models" / "LSTM"     / "lstm_model.h5",
-        BASE_DIR / "models" / "LSTM"     / "scaler_time.pkl",
-        BASE_DIR / "models" / "LSTM"     / "scaler_beh.pkl",
+        BASE_DIR / "models" / "LSTM"     / "scaler_x.pkl",
+        BASE_DIR / "models" / "LSTM"     / "scaler_b.pkl",
         BASE_DIR / "models" / "LSTM"     / "scaler_y.pkl",
         BASE_DIR / "models" / "le_district.pkl",
         BASE_DIR / "models" / "K-means"  / "kmeans_model.pkl",
         BASE_DIR / "models" / "K-means"  / "scaler_cluster.pkl",
     ]
-    # Accept .keras as alternative for LSTM model
+    # Accept .keras or converted .h5 as alternatives
     if not required[0].exists():
+        alt_h5 = BASE_DIR / "models" / "LSTM" / "lstm_model_converted.h5"
         keras_path = BASE_DIR / "models" / "LSTM" / "lstm_model.keras"
-        if keras_path.exists():
+        if alt_h5.exists():
+            required[0] = alt_h5
+        elif keras_path.exists():
             required[0] = keras_path
 
     missing = [str(p) for p in required if not p.exists()]
@@ -118,12 +141,16 @@ class InputData(BaseModel):
     prev1_kwh: float = Field(..., ge=0, description="Last month kWh (t-1)")
     prev2_kwh: float = Field(..., ge=0, description="Two months ago kWh (t-2)")
     prev3_kwh: float = Field(..., ge=0, description="Three months ago kWh (t-3)")
+    prev4_kwh: float = Field(..., ge=0, description="Four months ago kWh (t-4)")
+    prev5_kwh: float = Field(..., ge=0, description="Five months ago kWh (t-5)")
+    prev6_kwh: float = Field(..., ge=0, description="Six months ago kWh (t-6)")
 
     # ── Date & location (required) ──
     peak_ratio: float = Field(..., ge=0, le=1,
         description="Peak-hour fraction — auto-calculated by frontend")
-    month_sin:  float = Field(..., ge=-1, le=1)
-    month_cos:  float = Field(..., ge=-1, le=1)
+    month:      Optional[int] = Field(default=None, ge=1, le=12)
+    month_sin:  Optional[float] = Field(default=None, ge=-1, le=1)
+    month_cos:  Optional[float] = Field(default=None, ge=-1, le=1)
     district:   str   = Field(..., min_length=2, max_length=50)
 
     # ── Weather — fetched from Open-Meteo by frontend ──
@@ -154,21 +181,33 @@ class InputData(BaseModel):
     home_hours: Optional[float] = Field(default=None, ge=0, le=24)
 
     def prev_values(self) -> list[float]:
-        """Return [prev1, prev2, prev3] in most-recent-first order."""
-        return [self.prev1_kwh, self.prev2_kwh, self.prev3_kwh]
+        """Return six months of history in most-recent-first order."""
+        return [
+            self.prev1_kwh,
+            self.prev2_kwh,
+            self.prev3_kwh,
+            self.prev4_kwh,
+            self.prev5_kwh,
+            self.prev6_kwh,
+        ]
+
+    def month_value(self) -> int:
+        """Resolve the target month from an explicit month or legacy cyclic inputs."""
+        if self.month is not None:
+            return int(self.month)
+
+        if self.month_sin is not None and self.month_cos is not None:
+            import math
+
+            resolved = round(math.atan2(self.month_sin, self.month_cos) / (2 * math.pi) * 12) % 12
+            return resolved or 12
+
+        return 1
 
     def behavior_values(self) -> dict:
-        """
-        Build the behavior dict that predict.py expects.
-        Derives month_num from month_sin / month_cos via atan2.
-        """
-        import math
-        month_num = round(math.atan2(self.month_sin, self.month_cos)
-                          / (2 * math.pi) * 12) % 12 or 12
-
         return {
             "peak_ratio":          self.peak_ratio,
-            "month":               month_num,
+            "month":               self.month_value(),
             "temp":                self.temp,
             "humidity":            self.humidity,
             "rain":                self.rain,
@@ -195,6 +234,7 @@ class InputData(BaseModel):
 class ScenarioOverrides(BaseModel):
     """All fields are optional — only filled overrides are applied."""
     peak_ratio:          Optional[float] = Field(default=None, ge=0, le=1)
+    month:               Optional[int]   = Field(default=None, ge=1, le=12)
     family_size:         Optional[int]   = Field(default=None, ge=1, le=20)
     has_ac:              Optional[bool]  = None
     inverter_ac:         Optional[bool]  = None
@@ -228,31 +268,32 @@ def health():
 def model_info():
     """Return model metadata. Triggers model loading on first call."""
     _ensure_loaded()
-    import json
     meta_path = BASE_DIR / "models" / "model_meta.json"
-    metrics = {}
-    cluster_labels = {}
-    if meta_path.exists():
-        with open(meta_path) as f:
-            meta = json.load(f)
-        metrics        = meta.get("metrics", {})
-        cluster_labels = meta.get("cluster_labels", {})
+
+    meta = _load_json(meta_path)
+    calibration = meta.get("calibration", {})
+    metrics = meta.get("metrics", {})
+
+    cluster_meta = _load_json(BASE_DIR / "models" / "K-means" / "cluster_meta.json")
+    cluster_labels = cluster_meta.get("cluster_labels", {})
+    n_clusters = cluster_meta.get("n_clusters") or len(cluster_labels) or 3
 
     return {
         "model_status":   "READY",
         "forecast_model": {
             "type":     "Hybrid LSTM",
-            "seq_len":  3,
-            "n_time_features":    11,
-            "n_behavior_features": 18,
+            "seq_len":  meta.get("seq_len", 6),
+            "n_time_features":    len(meta.get("time_features", [])) or 5,
+            "n_behavior_features": len(meta.get("behavior_features", [])) or 4,
         },
         "cluster_model": {
             "type":           "K-Means",
-            "n_clusters":     4,
+            "n_clusters":     n_clusters,
             "cluster_labels": cluster_labels,
         },
+        "calibration": calibration,
         "metrics":        metrics,
-        "api_version":    "1.0.0",
+        "api_version":    "1.1.0",
     }
 
 

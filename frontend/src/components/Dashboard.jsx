@@ -13,7 +13,7 @@ import LeftPane from "./dashboard/LeftPane";
 import RightPane from "./dashboard/RightPane";
 
 export default function Dashboard() {
-  const [kwh, setKwh] = useState({ p1: "", p2: "", p3: "" });
+  const [kwh, setKwh] = useState({ p1: "", p2: "", p3: "", p4: "", p5: "", p6: "" });
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [district, setDistrict] = useState("Colombo");
   const [weather, setWeather] = useState(null);
@@ -53,7 +53,7 @@ export default function Dashboard() {
 
   const peakRatio = calcPeakRatio(kwh.p1, kwh.p2, kwh.p3);
   const ledRatio = calcLedRatio(behavior.led_bulbs, behavior.total_bulbs);
-  const kwhReady = kwh.p1 > 0 && kwh.p2 > 0 && kwh.p3 > 0;
+  const kwhReady = Object.values(kwh).every((value) => Number(value) > 0);
   const wxReady = !!weather;
   const peakColor = peakRatio > 0.7 ? "#D44040" : peakRatio > 0.55 ? "#E8A020" : "#7DC42B";
 
@@ -104,7 +104,7 @@ export default function Dashboard() {
 
   const handleSubmit = async () => {
     if (!kwhReady) {
-      setStatus("Enter 3 months of kWh first");
+      setStatus("Enter 6 months of kWh first");
       setStatusErr(true);
       return;
     }
@@ -200,8 +200,11 @@ export default function Dashboard() {
               <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} />
             </div>
             {modelInfo && (
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#4A6047" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#4A6047", textAlign: "right" }}>
                 {modelInfo.forecast_model?.type || "LSTM"}
+                {" · "}
+                {modelInfo.forecast_model?.seq_len || 6} mo
+                {modelInfo.metrics?.mae_kwh ? ` · MAE ${Number(modelInfo.metrics.mae_kwh).toFixed(1)}` : ""}
               </span>
             )}
           </div>
