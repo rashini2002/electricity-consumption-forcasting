@@ -22,7 +22,7 @@ function resolveDefaultApiBase() {
   return `${protocol}//${hostname}:8000`;
 }
 
-export default function Dashboard() {
+export default function Dashboard({ user, onLogout, historyItems, refreshHistory }) {
   const [kwh, setKwh] = useState({ p1: "", p2: "", p3: "" });
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [district, setDistrict] = useState("Colombo");
@@ -139,6 +139,9 @@ export default function Dashboard() {
       setResult({ ...data, _payload: payload });
       setDelta(null);
       setStatus("Forecast complete ✓");
+      if (typeof refreshHistory === "function") {
+        refreshHistory();
+      }
     } catch (e) {
       setStatus(e.message);
       setStatusErr(true);
@@ -210,6 +213,14 @@ export default function Dashboard() {
               <div className="pulse" />
               <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} />
             </div>
+            {user && (
+              <div className="api-row" style={{ gap: 8 }}>
+                <span style={{ color: "var(--text2)" }}>{user.username}</span>
+                <button className="ghost-btn" style={{ padding: "4px 8px", fontSize: 10 }} onClick={onLogout}>
+                  Logout
+                </button>
+              </div>
+            )}
             {modelInfo && (
               <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#4A6047", textAlign: "right" }}>
                 {modelInfo.forecast_model?.type || "LSTM"}
@@ -260,6 +271,7 @@ export default function Dashboard() {
             delta={delta}
             deltaLoading={deltaLoading}
             handleWhatIf={handleWhatIf}
+            historyItems={historyItems}
           />
         </div>
 

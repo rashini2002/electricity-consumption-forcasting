@@ -17,8 +17,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 # Ensure repository root is importable even when uvicorn is launched from backend/.
@@ -29,6 +30,16 @@ if str(REPO_ROOT) not in sys.path:
 # Import predictor only from this repository.
 from backend.src.predict import full_prediction
 from backend.src.predict import set_models
+from backend.api.db import (
+    authenticate_user,
+    clear_session,
+    create_session,
+    create_user,
+    get_user_from_token,
+    init_db,
+    list_prediction_history,
+    save_prediction_history,
+)
 from backend.api.recommendations import generate_recommendations
 
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +53,8 @@ app = FastAPI(
     description="Hybrid LSTM + K-Means electricity forecasting for Sri Lankan households",
     version="1.0.0",
 )
+
+security = HTTPBearer(auto_error=False)
 
 
 def _parse_origins(value: Optional[str]) -> list[str]:
@@ -75,6 +88,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
+    logger.info("Authentication database initialized: %s", BASE_DIR / "data" / "gridpulse.sqlite3")
 
 # ──────────────────────────────────────────────────────────────────
 # Model state
@@ -289,6 +308,46 @@ class WhatIfRequest(BaseModel):
     overrides: ScenarioOverrides
 
 
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=120)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+def _sanitize_user(user: dict) -> dict:
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "email": user["email"],
+        "created_at": user["created_at"],
+    }
+
+
+def _optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[dict]:
+    if credentials is None:
+        return None
+
+    if credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication scheme")
+
+    user = get_user_from_token(credentials.credentials)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+    return user
+
+
+def _required_user(user: Optional[dict] = Depends(_optional_user)) -> dict:
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return user
+
+
 # ──────────────────────────────────────────────────────────────────
 # Routes
 # ──────────────────────────────────────────────────────────────────
@@ -297,6 +356,57 @@ class WhatIfRequest(BaseModel):
 def health():
     """Health check — does not require models to be loaded."""
     return {"status": "ok", "service": "GridPulse API v1.0"}
+
+
+@app.post("/auth/register")
+def register(payload: RegisterRequest):
+    try:
+        user = create_user(payload.username, payload.email, payload.password)
+        token = create_session(user["id"])
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": _sanitize_user(user),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/auth/login")
+def login(payload: LoginRequest):
+    user = authenticate_user(payload.email, payload.password)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    token = create_session(user["id"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": _sanitize_user(user),
+    }
+
+
+@app.post("/auth/logout")
+def logout(
+    user: dict = Depends(_required_user),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    del user
+    if credentials is not None:
+        clear_session(credentials.credentials)
+    return {"status": "ok"}
+
+
+@app.get("/auth/me")
+def me(user: dict = Depends(_required_user)):
+    return {"user": _sanitize_user(user)}
+
+
+@app.get("/history")
+def history(limit: int = 20, user: dict = Depends(_required_user)):
+    return {
+        "items": list_prediction_history(user_id=user["id"], limit=limit),
+    }
 
 
 @app.get("/model-info")
@@ -333,7 +443,7 @@ def model_info():
 
 
 @app.post("/predict")
-def predict(data: InputData):
+def predict(data: InputData, user: Optional[dict] = Depends(_optional_user)):
     """
     Run the full LSTM + K-Means forecast for a single household.
 
@@ -347,6 +457,14 @@ def predict(data: InputData):
             prev_values=data.prev_values(),
             behavior_values=data.behavior_values(),
         )
+
+        if user is not None:
+            save_prediction_history(
+                user_id=user["id"],
+                request_payload=data.model_dump(),
+                response_payload=result,
+            )
+
         return result
 
     except ValueError as exc:

@@ -24,6 +24,7 @@ import { expandHistoryToSixMonths } from "../../utils/featureBuilder";
 
 export default function RightPane({
   result,
+  historyItems,
   month,
   kwh,
   history6,
@@ -156,7 +157,36 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="two-col fade motion-stage stage-1">
+          {!!historyItems?.length && (
+            <div className="card fade motion-stage stage-1" style={{ marginTop: 12 }}>
+              <div className="card-head">
+                <div className="card-title">Recent Forecast History</div>
+                <div className="card-note">Last {Math.min(historyItems.length, 20)} records</div>
+              </div>
+              <table className="slab-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>District</th>
+                    <th>kWh</th>
+                    <th>Bill</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyItems.slice(0, 8).map((item) => (
+                    <tr key={item.id}>
+                      <td>{new Date(item.created_at).toLocaleString()}</td>
+                      <td>{item.district || "-"}</td>
+                      <td>{Number(item.prediction_kwh || 0).toFixed(1)}</td>
+                      <td>{fmtLKR(item.estimated_bill_lkr || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="two-col fade motion-stage stage-2">
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Prediction Chart</div>
@@ -259,7 +289,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="two-col fade motion-stage stage-2">
+          <div className="two-col fade motion-stage stage-3">
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Appliance / Behavior Insight</div>
@@ -367,7 +397,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="two-col fade motion-stage stage-3">
+          <div className="two-col fade motion-stage stage-4">
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Personalised Recommendations</div>
@@ -473,7 +503,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="card fade motion-stage stage-4">
+          <div className="card fade motion-stage stage-4" style={{ marginTop: 12 }}>
             <div className="card-head">
               <div className="card-title">⚙ What-If Scenario Simulator</div>
               <button className="ghost-btn" onClick={handleWhatIf} disabled={deltaLoading}>
