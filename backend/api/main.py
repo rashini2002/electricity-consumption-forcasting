@@ -133,6 +133,7 @@ class InputData(BaseModel):
     """
     All fields that come from the user via the React dashboard.
     prev1/2/3 are raw kWh (not pre-scaled).
+    prev4/5/6 are optional; if omitted, the backend estimates them from the recent trend.
     Weather fields are fetched by the frontend via Open-Meteo.
     Behavioral features are entered by the user.
     """
@@ -141,9 +142,9 @@ class InputData(BaseModel):
     prev1_kwh: float = Field(..., ge=0, description="Last month kWh (t-1)")
     prev2_kwh: float = Field(..., ge=0, description="Two months ago kWh (t-2)")
     prev3_kwh: float = Field(..., ge=0, description="Three months ago kWh (t-3)")
-    prev4_kwh: float = Field(..., ge=0, description="Four months ago kWh (t-4)")
-    prev5_kwh: float = Field(..., ge=0, description="Five months ago kWh (t-5)")
-    prev6_kwh: float = Field(..., ge=0, description="Six months ago kWh (t-6)")
+    prev4_kwh: Optional[float] = Field(default=None, ge=0, description="Four months ago kWh (t-4)")
+    prev5_kwh: Optional[float] = Field(default=None, ge=0, description="Five months ago kWh (t-5)")
+    prev6_kwh: Optional[float] = Field(default=None, ge=0, description="Six months ago kWh (t-6)")
 
     # ── Date & location (required) ──
     peak_ratio: float = Field(..., ge=0, le=1,
@@ -182,13 +183,28 @@ class InputData(BaseModel):
 
     def prev_values(self) -> list[float]:
         """Return six months of history in most-recent-first order."""
+        if self.prev4_kwh is not None and self.prev5_kwh is not None and self.prev6_kwh is not None:
+            return [
+                self.prev1_kwh,
+                self.prev2_kwh,
+                self.prev3_kwh,
+                self.prev4_kwh,
+                self.prev5_kwh,
+                self.prev6_kwh,
+            ]
+
+        trend = ((self.prev1_kwh - self.prev2_kwh) + (self.prev2_kwh - self.prev3_kwh)) / 2
+        prev4 = max(0.0, round(self.prev3_kwh - trend, 1))
+        prev5 = max(0.0, round(prev4 - trend, 1))
+        prev6 = max(0.0, round(prev5 - trend, 1))
+
         return [
             self.prev1_kwh,
             self.prev2_kwh,
             self.prev3_kwh,
-            self.prev4_kwh,
-            self.prev5_kwh,
-            self.prev6_kwh,
+            prev4,
+            prev5,
+            prev6,
         ]
 
     def month_value(self) -> int:

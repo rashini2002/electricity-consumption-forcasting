@@ -6,6 +6,7 @@ import {
   normalizeWhatIfOverrides,
   calcPeakRatio,
   calcLedRatio,
+  expandHistoryToSixMonths,
 } from "../utils/featureBuilder";
 
 import { DASHBOARD_STYLES } from "./dashboard/styles";
@@ -13,7 +14,7 @@ import LeftPane from "./dashboard/LeftPane";
 import RightPane from "./dashboard/RightPane";
 
 export default function Dashboard() {
-  const [kwh, setKwh] = useState({ p1: "", p2: "", p3: "", p4: "", p5: "", p6: "" });
+  const [kwh, setKwh] = useState({ p1: "", p2: "", p3: "" });
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [district, setDistrict] = useState("Colombo");
   const [weather, setWeather] = useState(null);
@@ -53,7 +54,8 @@ export default function Dashboard() {
 
   const peakRatio = calcPeakRatio(kwh.p1, kwh.p2, kwh.p3);
   const ledRatio = calcLedRatio(behavior.led_bulbs, behavior.total_bulbs);
-  const kwhReady = Object.values(kwh).every((value) => Number(value) > 0);
+  const history6 = expandHistoryToSixMonths(kwh);
+  const kwhReady = [kwh.p1, kwh.p2, kwh.p3].every((value) => Number(value) > 0);
   const wxReady = !!weather;
   const peakColor = peakRatio > 0.7 ? "#D44040" : peakRatio > 0.55 ? "#E8A020" : "#7DC42B";
 
@@ -104,7 +106,7 @@ export default function Dashboard() {
 
   const handleSubmit = async () => {
     if (!kwhReady) {
-      setStatus("Enter 6 months of kWh first");
+      setStatus("Enter 3 months of kWh first");
       setStatusErr(true);
       return;
     }
@@ -238,6 +240,7 @@ export default function Dashboard() {
             result={result}
             month={month}
             kwh={kwh}
+            history6={history6}
             behavior={behavior}
             district={district}
             weather={weather}

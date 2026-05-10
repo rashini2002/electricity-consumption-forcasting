@@ -18,11 +18,13 @@ import {
 import { MONTH_NAMES, CLUSTER_STYLE, RISK_COLOR, TIPS_ICONS } from "./constants";
 import { fmtLKR, fmtK, clamp } from "./formatters";
 import { Spinner, ChipToggle, ChartTip } from "./ui";
+import { expandHistoryToSixMonths } from "../../utils/featureBuilder";
 
 export default function RightPane({
   result,
   month,
   kwh,
+  history6,
   behavior,
   district,
   weather,
@@ -45,12 +47,13 @@ export default function RightPane({
   const factors = result?.explanation?.top_factors || [];
   const cluster = behaviorRes.category || "";
   const clusterStyle = CLUSTER_STYLE[cluster] || CLUSTER_STYLE.Moderate;
+  const sixMonthHistory = history6 || expandHistoryToSixMonths(kwh);
 
   const histData = result
     ? [
-        { name: "6 Mo Ago", kwh: Number(kwh.p6) || 0 },
-        { name: "5 Mo Ago", kwh: Number(kwh.p5) || 0 },
-        { name: "4 Mo Ago", kwh: Number(kwh.p4) || 0 },
+        { name: "6 Mo Ago (est.)", kwh: Number(sixMonthHistory.p6) || 0 },
+        { name: "5 Mo Ago (est.)", kwh: Number(sixMonthHistory.p5) || 0 },
+        { name: "4 Mo Ago (est.)", kwh: Number(sixMonthHistory.p4) || 0 },
         { name: "3 Mo Ago", kwh: Number(kwh.p3) || 0 },
         { name: "2 Mo Ago", kwh: Number(kwh.p2) || 0 },
         { name: "Last Mo", kwh: Number(kwh.p1) || 0 },
@@ -89,7 +92,7 @@ export default function RightPane({
           <div className="empty-graphic">⚡</div>
           <h3>No forecast generated yet</h3>
           <p>
-            Complete the 3 steps on the left — enter your last 6 months of kWh,
+            Complete the 3 steps on the left — enter your last 3 months of kWh,
             select your target month and district, add household details, then click
             Generate Forecast.
           </p>
@@ -139,7 +142,7 @@ export default function RightPane({
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Prediction Chart</div>
-                <div className="card-note">Line + forecast point</div>
+                <div className="card-note">Line + forecast point, older months inferred</div>
               </div>
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">

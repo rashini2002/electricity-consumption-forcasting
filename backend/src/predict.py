@@ -209,6 +209,20 @@ def _build_time_sequence(history_values: Sequence[float], month_num: int) -> np.
     return np.asarray(rows, dtype=np.float32)
 
 
+def _expand_history_to_six_months(history_values: Sequence[float]) -> list[float]:
+        history = [float(value) for value in history_values]
+        if len(history) == SEQ_LEN:
+            return history
+        if len(history) != 3:
+                raise ValueError(f"Expected 3 or {SEQ_LEN} monthly kWh values, got {len(history)}")
+
+        trend = ((history[0] - history[1]) + (history[1] - history[2])) / 2
+        prev4 = max(0.0, round(history[2] - trend, 1))
+        prev5 = max(0.0, round(prev4 - trend, 1))
+        prev6 = max(0.0, round(prev5 - trend, 1))
+        return [history[0], history[1], history[2], prev4, prev5, prev6]
+
+
 def _scale_time_sequence(time_seq: np.ndarray) -> np.ndarray:
     scaled = time_seq.astype(np.float32).copy()
     for idx in TIME_SCALE_FEATURE_IDXS:
@@ -393,8 +407,7 @@ def full_prediction(prev_values: Sequence[float], behavior_values: dict) -> dict
         raise RuntimeError("Models not loaded. Call set_models() first.")
 
     history_values = [float(value) for value in prev_values]
-    if len(history_values) != SEQ_LEN:
-        raise ValueError(f"Expected {SEQ_LEN} monthly kWh values, got {len(history_values)}")
+    history_values = _expand_history_to_six_months(history_values)
 
     peak_ratio = float(behavior_values.get("peak_ratio", 0.5))
     month_num  = int(behavior_values.get("month", 6))

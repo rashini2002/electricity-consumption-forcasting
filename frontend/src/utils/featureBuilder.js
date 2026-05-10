@@ -12,14 +12,29 @@ export function calcLedRatio(ledCount, totalCount) {
   return Number((led / total).toFixed(2));
 }
 
+export function expandHistoryToSixMonths(kwh) {
+  const p1 = Number(kwh.p1) || 0;
+  const p2 = Number(kwh.p2) || 0;
+  const p3 = Number(kwh.p3) || 0;
+
+  const trend = ((p1 - p2) + (p2 - p3)) / 2;
+  const p4 = Math.max(0, Number((p3 - trend).toFixed(1)));
+  const p5 = Math.max(0, Number((p4 - trend).toFixed(1)));
+  const p6 = Math.max(0, Number((p5 - trend).toFixed(1)));
+
+  return { p1, p2, p3, p4, p5, p6 };
+}
+
 export function buildDashboardPayload({ kwh, month, district, weather, behavior, peakRatio, ledRatio }) {
+  const history6 = expandHistoryToSixMonths(kwh);
+
   return {
-    prev1_kwh: Number(kwh.p1),
-    prev2_kwh: Number(kwh.p2),
-    prev3_kwh: Number(kwh.p3),
-    prev4_kwh: Number(kwh.p4),
-    prev5_kwh: Number(kwh.p5),
-    prev6_kwh: Number(kwh.p6),
+    prev1_kwh: history6.p1,
+    prev2_kwh: history6.p2,
+    prev3_kwh: history6.p3,
+    prev4_kwh: history6.p4,
+    prev5_kwh: history6.p5,
+    prev6_kwh: history6.p6,
     month,
     peak_ratio: peakRatio,
     temp: weather?.temp ?? 29,
