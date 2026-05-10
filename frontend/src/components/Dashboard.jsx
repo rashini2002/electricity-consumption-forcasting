@@ -13,6 +13,15 @@ import { DASHBOARD_STYLES } from "./dashboard/styles";
 import LeftPane from "./dashboard/LeftPane";
 import RightPane from "./dashboard/RightPane";
 
+function resolveDefaultApiBase() {
+  if (typeof window === "undefined") {
+    return "http://127.0.0.1:8000";
+  }
+
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:8000`;
+}
+
 export default function Dashboard() {
   const [kwh, setKwh] = useState({ p1: "", p2: "", p3: "" });
   const [month, setMonth] = useState(new Date().getMonth() + 1);
@@ -41,7 +50,7 @@ export default function Dashboard() {
     total_bulbs: 5,
   });
 
-  const [apiBase, setApiBase] = useState("http://127.0.0.1:8000");
+  const [apiBase, setApiBase] = useState(resolveDefaultApiBase);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState("Ready");

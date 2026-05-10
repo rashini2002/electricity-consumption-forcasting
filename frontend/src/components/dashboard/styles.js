@@ -1,5 +1,5 @@
 export const DASHBOARD_STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -17,9 +17,9 @@ export const DASHBOARD_STYLES = `
   --r:         14px;
   --r2:        18px;
   --r3:        24px;
-  --heading-font: 'Sora', sans-serif;
+  --heading-font: 'Inter', sans-serif;
   --body-font: 'Inter', sans-serif;
-  --mono:      'JetBrains Mono', monospace;
+  --mono:      'Inter', sans-serif;
   --sans:      var(--body-font);
   --serif:     var(--heading-font);
   --transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
@@ -38,7 +38,7 @@ html, body, #root {
   height: 100%;
   background: var(--bg-gradient);
   color: var(--text);
-  font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  font-family: var(--sans); font-size: 16px; line-height: 1.65;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -109,7 +109,7 @@ h1, h2 {
   box-shadow: 0 0 24px rgba(69, 222, 255, 0.55);
 }
 .logo-bolt svg { width: 16px; height: 16px; }
-.logo-name { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -.2px; }
+.logo-name { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -.2px; }
 .logo-tag { font-family: var(--mono); font-size: 10px; color: var(--cyan); margin-left: 4px; }
 .header-mid { flex: 1; display: flex; justify-content: center; }
 .step-trail { display: flex; align-items: center; gap: 0; }
@@ -179,7 +179,7 @@ h1, h2 {
   box-shadow: 0 0 18px rgba(69, 222, 255, 0.45);
 }
 .step-num.done { background: rgba(138,252,111,.16); border-color: rgba(138,252,111,.45); color: var(--lime); }
-.step-title { font-size: 12px; font-weight: 600; color: var(--text2); flex: 1; letter-spacing: .01em; }
+.step-title { font-size: 14px; font-weight: 600; color: var(--text2); flex: 1; letter-spacing: .01em; }
 .step-title.active { color: var(--text); }
 .step-badge {
   font-family: var(--mono); font-size: 10px; padding: 2px 8px;
@@ -195,17 +195,17 @@ h1, h2 {
 /* ── FIELDS ── */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .label {
-  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
   text-transform: uppercase; letter-spacing: .06em;
 }
-.label span { color: var(--text2); font-size: 11px; text-transform: none; letter-spacing: 0; margin-left: 4px; }
-.hint { font-size: 11px; color: var(--muted2); margin-top: 2px; }
+.label span { color: var(--text2); font-size: 12px; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+.hint { font-size: 12px; color: var(--muted2); margin-top: 2px; }
 
 input[type=number], input[type=text], input[type=url], select {
   background: rgba(255,255,255,.08);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  color: var(--text); padding: 8px 10px; font-family: var(--mono); font-size: 12px;
+  color: var(--text); padding: 8px 10px; font-family: var(--mono); font-size: 13px;
   width: 100%; outline: none; transition: var(--transition);
 }
 input:focus, select:focus {
@@ -232,7 +232,7 @@ input[type=range]::-webkit-slider-thumb {
   display: flex; align-items: center; gap: 6px; padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 99px;
-  font-size: 12px; cursor: pointer; user-select: none;
+  font-size: 13px; cursor: pointer; user-select: none;
   transition: var(--transition);
   color: var(--muted);
   background: rgba(255,255,255,.05);
@@ -252,8 +252,8 @@ input[type=range]::-webkit-slider-thumb {
   padding: 8px 0; border-bottom: 1px solid var(--surface2);
 }
 .inline-field:last-child { border-bottom: none; }
-.inline-label { font-size: 12px; color: var(--text2); }
-.inline-sub { font-size: 11px; color: var(--muted2); }
+.inline-label { font-size: 13px; color: var(--text2); }
+.inline-sub { font-size: 12px; color: var(--muted2); }
 .inline-input { display: flex; align-items: center; gap: 8px; }
 .inline-input input[type=number] { width: 80px; text-align: right; }
 
@@ -277,7 +277,7 @@ input[type=range]::-webkit-slider-thumb {
   border-radius: var(--r2); padding: 10px; text-align: center;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
 }
-.weather-val { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.weather-val { font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .weather-lbl { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; }
 
 /* ── PEAK BAR ── */
@@ -288,8 +288,8 @@ input[type=range]::-webkit-slider-thumb {
   padding: 12px; margin-top: 10px;
 }
 .peak-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.peak-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-.peak-value { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--text); }
+.peak-label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.peak-value { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--text); }
 .peak-track { height: 8px; background: rgba(255,255,255,.12); border-radius: 4px; overflow: hidden; }
 .peak-fill { height: 100%; border-radius: 4px; transition: width .5s cubic-bezier(.4,0,.2,1); }
 
@@ -299,7 +299,7 @@ input[type=range]::-webkit-slider-thumb {
   background: linear-gradient(135deg, #103447, #183a2a 52%, #2b2b55);
   color: #e8f8ff;
   font-family: var(--sans);
-  font-size: 13px; font-weight: 700; cursor: pointer; display: flex;
+  font-size: 15px; font-weight: 700; cursor: pointer; display: flex;
   align-items: center; justify-content: center; gap: 8px;
   transition: var(--transition);
   letter-spacing: -.1px;
@@ -386,7 +386,7 @@ input[type=range]::-webkit-slider-thumb {
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(255,255,255,.12);
 }
-.card-title { font-size: 13px; font-weight: 600; }
+.card-title { font-size: 15px; font-weight: 600; }
 .card-note { font-family: var(--mono); font-size: 10px; color: var(--muted2); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -438,7 +438,7 @@ input[type=range]::-webkit-slider-thumb {
   background: rgba(255,255,255,.07);
   border-radius: var(--r);
   border: 1px solid rgba(255,255,255,.14);
-  font-size: 12px; line-height: 1.5; color: var(--text2);
+  font-size: 13px; line-height: 1.55; color: var(--text2);
 }
 .tip-i { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
 
@@ -449,7 +449,7 @@ input[type=range]::-webkit-slider-thumb {
   background: rgba(255,255,255,.08);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  font-family: var(--mono); font-size: 12px; margin-top: 10px;
+  font-family: var(--mono); font-size: 13px; margin-top: 10px;
 }
 .up { color: var(--red); } .dn { color: var(--lime); }
 
@@ -464,8 +464,8 @@ input[type=range]::-webkit-slider-thumb {
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center; font-size: 28px; opacity: .5;
 }
-.empty h3 { font-size: 15px; font-weight: 600; color: var(--text2); }
-.empty p { font-size: 12px; line-height: 1.7; max-width: 280px; }
+.empty h3 { font-size: 17px; font-weight: 600; color: var(--text2); }
+.empty p { font-size: 13px; line-height: 1.7; max-width: 280px; }
 
 /* ── FOOTER ── */
 .footer {
@@ -491,6 +491,31 @@ input[type=range]::-webkit-slider-thumb {
 /* ── FADE ── */
 @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .fade { animation: fadeUp .22s ease both; }
+
+@keyframes stageRise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+    filter: saturate(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+}
+
+.motion-stage {
+  opacity: 0;
+  animation: stageRise 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+
+.stage-0 { animation-delay: 40ms; }
+.stage-1 { animation-delay: 130ms; }
+.stage-2 { animation-delay: 230ms; }
+.stage-3 { animation-delay: 330ms; }
+.stage-4 { animation-delay: 430ms; }
 
 /* ── TOOLTIP ── */
 .recharts-default-tooltip {

@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import {
   LineChart,
   Line,
@@ -85,6 +87,22 @@ export default function RightPane({
     color: COLORS[i % COLORS.length],
   }));
 
+  const animationSeed = useMemo(() => {
+    if (!result) return "idle";
+    return [
+      month,
+      Number(forecast.prediction_kwh || 0).toFixed(2),
+      Number(billing.estimated_bill_lkr || 0).toFixed(2),
+      Number(risk.score || 0).toFixed(1),
+    ].join("-");
+  }, [
+    result,
+    month,
+    forecast.prediction_kwh,
+    billing.estimated_bill_lkr,
+    risk.score,
+  ]);
+
   return (
     <section className="right-pane pane" style={{ paddingBottom: 52 }}>
       {!result ? (
@@ -98,8 +116,8 @@ export default function RightPane({
           </p>
         </div>
       ) : (
-        <>
-          <div className="metrics fade">
+        <div key={animationSeed}>
+          <div className="metrics fade motion-stage stage-0">
             <div className="metric">
               <div className="metric-eyebrow">Predicted Usage — {MONTH_NAMES[month - 1]}</div>
               <div className="metric-val lime">{fmtK(forecast.prediction_kwh)}</div>
@@ -138,7 +156,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="two-col fade">
+          <div className="two-col fade motion-stage stage-1">
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Prediction Chart</div>
@@ -146,7 +164,7 @@ export default function RightPane({
               </div>
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={histData} margin={{ left: -16, right: 10, top: 6, bottom: 0 }}>
+                  <LineChart key={`hist-${animationSeed}`} data={histData} margin={{ left: -16, right: 10, top: 6, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorKwh" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.8} />
@@ -158,7 +176,16 @@ export default function RightPane({
                     <YAxis fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" unit=" kWh" />
                     <Tooltip content={<ChartTip unit="kWh" />} />
                     <ReferenceLine y={forecast.prediction_kwh} stroke="rgba(125,196,43,.3)" strokeDasharray="4 3" />
-                    <Area type="monotone" dataKey="kwh" stroke="none" fill="url(#colorKwh)" />
+                    <Area
+                      type="monotone"
+                      dataKey="kwh"
+                      stroke="none"
+                      fill="url(#colorKwh)"
+                      isAnimationActive
+                      animationBegin={120}
+                      animationDuration={900}
+                      animationEasing="ease-out"
+                    />
                     <Line
                       type="monotone"
                       dataKey="kwh"
@@ -168,6 +195,10 @@ export default function RightPane({
                       activeDot={{ r: 7 }}
                       connectNulls={false}
                       name="Actual"
+                      isAnimationActive
+                      animationBegin={280}
+                      animationDuration={900}
+                      animationEasing="ease-out"
                     />
                     <Line
                       type="monotone"
@@ -177,6 +208,10 @@ export default function RightPane({
                       strokeDasharray="5 4"
                       dot={{ r: 5, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }}
                       name="Predicted"
+                      isAnimationActive
+                      animationBegin={560}
+                      animationDuration={700}
+                      animationEasing="ease-out"
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -190,7 +225,7 @@ export default function RightPane({
               </div>
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={peakData} margin={{ left: -16, right: 10, top: 6, bottom: 0 }}>
+                  <BarChart key={`peak-${animationSeed}`} data={peakData} margin={{ left: -16, right: 10, top: 6, bottom: 0 }}>
                     <defs>
                       <linearGradient id="gradPeak" x1="0" y1="0" x2="1" y2="0">
                         <stop offset="0%" stopColor="#f59e0b" />
@@ -201,7 +236,16 @@ export default function RightPane({
                     <XAxis dataKey="name" fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" />
                     <YAxis fontSize={11} tick={{ fill: "var(--text-sub)" }} stroke="none" unit="%" domain={[0, 100]} />
                     <Tooltip content={<ChartTip unit="%" />} />
-                    <Bar dataKey="value" name="Share" radius={[12, 12, 12, 12]} fill="url(#gradPeak)">
+                    <Bar
+                      dataKey="value"
+                      name="Share"
+                      radius={[12, 12, 12, 12]}
+                      fill="url(#gradPeak)"
+                      isAnimationActive
+                      animationBegin={240}
+                      animationDuration={820}
+                      animationEasing="ease-out"
+                    >
                       {peakData.map((d, i) => (
                         <Cell key={d.name} />
                       ))}
@@ -215,7 +259,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="two-col fade">
+          <div className="two-col fade motion-stage stage-2">
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Appliance / Behavior Insight</div>
@@ -225,7 +269,7 @@ export default function RightPane({
                 <>
                   <div className="chart-wrap">
                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
+                      <PieChart key={`appliance-${animationSeed}`}>
                         <Pie
                           data={applianceInsightData}
                           dataKey="value"
@@ -235,6 +279,10 @@ export default function RightPane({
                           outerRadius={58}
                           innerRadius={28}
                           paddingAngle={2}
+                          isAnimationActive
+                          animationBegin={260}
+                          animationDuration={860}
+                          animationEasing="ease-out"
                         >
                           {applianceInsightData.map((d) => (
                             <Cell key={d.name} fill={d.color} />
@@ -272,7 +320,7 @@ export default function RightPane({
                 <>
                   <div className="chart-wrap">
                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
+                      <PieChart key={`bill-${animationSeed}`}>
                         <Pie
                           data={billBreakdownPie}
                           dataKey="value"
@@ -282,6 +330,10 @@ export default function RightPane({
                           outerRadius={60}
                           innerRadius={30}
                           paddingAngle={2}
+                          isAnimationActive
+                          animationBegin={320}
+                          animationDuration={920}
+                          animationEasing="ease-out"
                         >
                           {billBreakdownPie.map((d) => (
                             <Cell key={d.name} fill={d.color} />
@@ -315,7 +367,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="two-col fade">
+          <div className="two-col fade motion-stage stage-3">
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Personalised Recommendations</div>
@@ -421,7 +473,7 @@ export default function RightPane({
             </div>
           </div>
 
-          <div className="card fade">
+          <div className="card fade motion-stage stage-4">
             <div className="card-head">
               <div className="card-title">⚙ What-If Scenario Simulator</div>
               <button className="ghost-btn" onClick={handleWhatIf} disabled={deltaLoading}>
@@ -489,7 +541,7 @@ export default function RightPane({
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
     </section>
   );

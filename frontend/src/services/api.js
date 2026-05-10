@@ -21,9 +21,31 @@ function resolveInitialApiBase() {
 }
 
 let API_BASE = resolveInitialApiBase();
+let AUTH_TOKEN = "";
 
 export function setApiBase(baseUrl) {
   API_BASE = (baseUrl || "").trim().replace(/\/$/, "") || FALLBACK_API_BASE;
+}
+
+export function getStoredAuthToken() {
+  try {
+    return localStorage.getItem("gridpulse_auth_token") || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setAuthToken(token) {
+  AUTH_TOKEN = (token || "").trim();
+  try {
+    if (AUTH_TOKEN) {
+      localStorage.setItem("gridpulse_auth_token", AUTH_TOKEN);
+    } else {
+      localStorage.removeItem("gridpulse_auth_token");
+    }
+  } catch {
+    // Ignore storage errors in non-browser contexts.
+  }
 }
 
 function buildUrl(path) {
@@ -43,6 +65,7 @@ async function request(path, options = {}) {
       signal: controller.signal,
       headers: {
         Accept: "application/json",
+        ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
         ...(options.headers || {}),
       },
     });
@@ -86,4 +109,32 @@ export function predictWhatIf(base, overrides) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ base, overrides }),
   });
+}
+
+export function registerUser({ username, email, password }) {
+  return request("/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, email, password }),
+  });
+}
+
+export function loginUser({ email, password }) {
+  return request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logoutUser() {
+  return request("/auth/logout", { method: "POST" });
+}
+
+export function getCurrentUser() {
+  return request("/auth/me");
+}
+
+export function getHistory(limit = 20) {
+  return request(`/history?limit=${encodeURIComponent(limit)}`);
 }

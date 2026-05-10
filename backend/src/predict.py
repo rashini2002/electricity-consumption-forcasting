@@ -86,6 +86,7 @@ _cluster_labels= None
 _cluster_features = None
 _meta          = None
 _mae           = 26.0       # default from notebook Cell 22 output
+_using_fallback_model = False
 BLEND_ALPHA = 1.0
 BLEND_SCALE = 1.0
 BLEND_BIAS_KWH = 0.0
@@ -108,6 +109,7 @@ def set_models(base_dir: Optional[Path] = None) -> None:
     global _model, _scaler_time, _scaler_beh, _scaler_y
     global _scaler_cluster, _kmeans
     global _cluster_labels, _cluster_features, _meta, _mae
+    global _using_fallback_model
     global BLEND_ALPHA, BLEND_SCALE, BLEND_BIAS_KWH
     global VAL_TIER_EDGES, VAL_TIER_BIASES
 
@@ -127,8 +129,18 @@ def set_models(base_dir: Optional[Path] = None) -> None:
     if model_path is None:
         raise RuntimeError(f"Model file not found: {model_candidates[0]}")
 
+    _model = None
+    _using_fallback_model = False
     logger.info("Loading LSTM model from %s", model_path)
-    _model = tf.keras.models.load_model(str(model_path), compile=False)
+    try:
+        _model = tf.keras.models.load_model(str(model_path), compile=False)
+    except Exception as exc:
+        _using_fallback_model = True
+        logger.warning(
+            "Could not deserialize %s (%s). Falling back to heuristic predictor.",
+            model_path,
+            exc,
+        )
 
     # ── Scalers ──
     _scaler_time    = joblib.load(lstm_dir / "scaler_x.pkl")
@@ -308,6 +320,30 @@ def _calculate_bill(kwh: float) -> dict:
     return {"total_lkr": round(total, 2), "slab_breakdown": breakdown}
 
 
+def _fallback_predict_kwh(history_values: Sequence[float], beh_vals: dict) -> float:
+    """Heuristic predictor used when the LSTM artifact cannot be deserialized."""
+    p1, p2, p3 = [float(v) for v in history_values[:3]]
+    base = 0.58 * p1 + 0.27 * p2 + 0.15 * p3
+
+    peak_ratio = float(beh_vals.get("peak_ratio", 0.5))
+    has_ac = float(beh_vals.get("has_ac", 0))
+    ac_hours = float(beh_vals.get("ac_hours_per_day", 0))
+    work_from_home = float(beh_vals.get("work_from_home", 0))
+    avg_hours_wfh = float(beh_vals.get("avg_hours_wfh", 0))
+    no_members_wfh = float(beh_vals.get("no_members_wfh", 0))
+    family_size = float(beh_vals.get("family_size", 4))
+    has_solar = float(beh_vals.get("has_solar", 0))
+
+    peak_adj = (peak_ratio - 0.5) * 0.14 * max(base, 1.0)
+    ac_adj = has_ac * ac_hours * 1.6
+    wfh_adj = work_from_home * avg_hours_wfh * no_members_wfh * 0.3
+    family_adj = max(0.0, family_size - 3.0) * 1.8
+    solar_adj = -8.0 if has_solar else 0.0
+
+    pred = base + peak_adj + ac_adj + wfh_adj + family_adj + solar_adj
+    return float(np.clip(pred, 5.0, 1000.0))
+
+
 def _risk_level(kwh: float) -> dict:
     """Map predicted kWh to risk label + score."""
     if kwh < 100:
@@ -403,7 +439,7 @@ def full_prediction(prev_values: Sequence[float], behavior_values: dict) -> dict
     Returns:
         Full response dict matching the frontend contract.
     """
-    if _model is None:
+    if _scaler_cluster is None or _kmeans is None:
         raise RuntimeError("Models not loaded. Call set_models() first.")
 
     history_values = [float(value) for value in prev_values]
@@ -429,21 +465,18 @@ def full_prediction(prev_values: Sequence[float], behavior_values: dict) -> dict
     beh_list = _derive_behavior_features(beh_vals, recent_mean)
     beh_row  = np.array([beh_list], dtype=np.float32)   # (1, 4)
 
-    # ── 4. Scale ─────────────────────────────────────────────────
+    # ── 4-6. Model inference or fallback ─────────────────────────
+    if _model is not None and _scaler_time is not None and _scaler_beh is not None and _scaler_y is not None:
+        seq_scaled = _scale_time_sequence(time_seq)
+        t_scaled = seq_scaled.reshape(1, SEQ_LEN, -1)
+        b_scaled = _scaler_beh.transform(beh_row).astype(np.float32)
 
-    seq_scaled = _scale_time_sequence(time_seq)
-    t_scaled = seq_scaled.reshape(1, SEQ_LEN, -1)
-
-    b_scaled = _scaler_beh.transform(beh_row).astype(np.float32)
-
-
-    # ── 5. LSTM forward pass ──────────────────────────────────────
-    y_s = _model.predict([t_scaled, b_scaled], verbose=0)  # (1, 1)
-    pred_raw = float(_scaler_y.inverse_transform(y_s.reshape(-1, 1))[0][0])
-    pred_kwh = float(np.clip(pred_raw, 5.0, 1000.0))
-
-    # ── 6. Validation-calibrated product inference ───────────────
-    pred_kwh = float(_apply_product_calibration(np.array([pred_kwh]), np.array([history_values[0]]))[0])
+        y_s = _model.predict([t_scaled, b_scaled], verbose=0)  # (1, 1)
+        pred_raw = float(_scaler_y.inverse_transform(y_s.reshape(-1, 1))[0][0])
+        pred_kwh = float(np.clip(pred_raw, 5.0, 1000.0))
+        pred_kwh = float(_apply_product_calibration(np.array([pred_kwh]), np.array([history_values[0]]))[0])
+    else:
+        pred_kwh = _fallback_predict_kwh(history_values, beh_vals)
 
     # ── 7. Cluster assignment ─────────────────────────────────────
     cluster_id, cluster_name = _assign_cluster(beh_vals, recent_mean)
@@ -482,4 +515,5 @@ def full_prediction(prev_values: Sequence[float], behavior_values: dict) -> dict
         "explanation": {
             "top_factors": factors,
         },
+        "model_mode": "fallback" if _using_fallback_model else "lstm",
     }

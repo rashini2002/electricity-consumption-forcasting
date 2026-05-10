@@ -11,6 +11,7 @@ Endpoints:
 
 import json
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -63,6 +64,13 @@ cors_origins = _parse_origins(os.getenv("GRIDPULSE_CORS_ORIGINS")) or _parse_ori
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=(
+        r"^https?://(localhost|127\.0\.0\.1|"
+        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+        r"192\.168\.\d{1,3}\.\d{1,3}|"
+        r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})"
+        r"(:\d+)?$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -81,6 +89,17 @@ def _load_json(path: Path) -> dict:
         return {}
     with open(path) as handle:
         return json.load(handle)
+
+
+def _json_safe(value):
+    """Recursively convert NaN/Infinity values to JSON-safe representations."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 def _ensure_loaded() -> None:
@@ -307,8 +326,8 @@ def model_info():
             "n_clusters":     n_clusters,
             "cluster_labels": cluster_labels,
         },
-        "calibration": calibration,
-        "metrics":        metrics,
+        "calibration": _json_safe(calibration),
+        "metrics": _json_safe(metrics),
         "api_version":    "1.1.0",
     }
 

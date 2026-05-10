@@ -1,5 +1,18 @@
 import { MONTH_NAMES, SL_DISTRICTS } from "./constants";
 import { Spinner, ChipToggle, InlineField } from "./ui";
+import {
+  Snowflake,
+  ShowerHead,
+  UtensilsCrossed,
+  Shirt,
+  Droplets,
+  Wind,
+  Zap,
+  Plug,
+  Laptop,
+  Sun,
+  Thermometer,
+} from "lucide-react";
 
 export default function LeftPane({
   openStep,
@@ -29,6 +42,8 @@ export default function LeftPane({
     if (n === 3) return openStep === 3 ? "active" : "";
     return "";
   }
+
+  const iconProps = { size: 14, strokeWidth: 2 };
 
   return (
     <aside className="left-pane pane">
@@ -169,18 +184,18 @@ export default function LeftPane({
           <div className="label" style={{ margin: "12px 0 6px" }}>Appliances Owned</div>
           <div className="chip-grid">
             {[
-              { id: "has_refrigerator", label: "Fridge", icon: "🧊" },
-              { id: "has_geyser", label: "Geyser", icon: "🚿" },
-              { id: "has_electric_cooking", label: "Elec. Cooker", icon: "🍳" },
-              { id: "has_washing_machine", label: "Washing Machine", icon: "👕" },
-              { id: "has_water_pump", label: "Water Pump", icon: "💧" },
+              { id: "has_refrigerator", label: "Fridge", icon: <Snowflake {...iconProps} /> },
+              { id: "has_geyser", label: "Geyser", icon: <ShowerHead {...iconProps} /> },
+              { id: "has_electric_cooking", label: "Elec. Cooker", icon: <UtensilsCrossed {...iconProps} /> },
+              { id: "has_washing_machine", label: "Washing Machine", icon: <Shirt {...iconProps} /> },
+              { id: "has_water_pump", label: "Water Pump", icon: <Droplets {...iconProps} /> },
             ].map((a) => (
               <ChipToggle key={a.id} id={a.id} label={a.label} icon={a.icon} checked={!!behavior[a.id]} onChange={setB} />
             ))}
           </div>
 
           <div className="label" style={{ margin: "12px 0 6px" }}>Air Conditioning</div>
-          <ChipToggle id="has_ac" label="Has Air Conditioner" icon="❄️" checked={!!behavior.has_ac} onChange={setB} />
+          <ChipToggle id="has_ac" label="Has Air Conditioner" icon={<Wind {...iconProps} />} checked={!!behavior.has_ac} onChange={setB} />
 
           {behavior.has_ac && (
             <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "10px 12px", marginTop: 8 }}>
@@ -189,7 +204,7 @@ export default function LeftPane({
                 <ChipToggle
                   id="inverter_ac"
                   label="Inverter AC"
-                  icon="⚡"
+                  icon={<Zap {...iconProps} />}
                   checked={!!behavior.inverter_ac}
                   onChange={(k, v) => {
                     setB(k, v);
@@ -199,7 +214,7 @@ export default function LeftPane({
                 <ChipToggle
                   id="non_inverter_ac"
                   label="Non-Inverter AC"
-                  icon="🔌"
+                  icon={<Plug {...iconProps} />}
                   checked={!!behavior.non_inverter_ac}
                   onChange={(k, v) => {
                     setB(k, v);
@@ -222,7 +237,7 @@ export default function LeftPane({
           )}
 
           <div className="label" style={{ margin: "12px 0 6px" }}>Work From Home</div>
-          <ChipToggle id="work_from_home" label="Household members work from home" icon="💻" checked={!!behavior.work_from_home} onChange={setB} />
+          <ChipToggle id="work_from_home" label="Household members work from home" icon={<Laptop {...iconProps} />} checked={!!behavior.work_from_home} onChange={setB} />
 
           {behavior.work_from_home && (
             <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r2)", padding: "10px 12px", marginTop: 8 }}>
@@ -251,10 +266,10 @@ export default function LeftPane({
           )}
 
           <div className="label" style={{ margin: "12px 0 6px" }}>Solar Energy</div>
-          <ChipToggle id="has_solar" label="Solar panels installed" icon="☀️" checked={!!behavior.has_solar} onChange={setB} />
+          <ChipToggle id="has_solar" label="Solar panels installed" icon={<Sun {...iconProps} />} checked={!!behavior.has_solar} onChange={setB} />
           {behavior.has_solar && (
             <div style={{ marginTop: 6 }}>
-              <ChipToggle id="water_heater_solar" label="Solar water heater" icon="🌡️" checked={!!behavior.water_heater_solar} onChange={setB} />
+              <ChipToggle id="water_heater_solar" label="Solar water heater" icon={<Thermometer {...iconProps} />} checked={!!behavior.water_heater_solar} onChange={setB} />
             </div>
           )}
 
@@ -295,7 +310,7 @@ export default function LeftPane({
 
       <div style={{ padding: "16px" }}>
         <button className="predict-btn" onClick={handleSubmit} disabled={loading || !kwhReady}>
-          {loading ? <><Spinner />Running LSTM Forecast…</> : <>⚡ Generate Forecast for {MONTH_NAMES[month - 1]}</>}
+          {loading ? <><Spinner />Running LSTM Forecast…</> : <><Zap size={15} strokeWidth={2} /> Generate Forecast for {MONTH_NAMES[month - 1]}</>}
         </button>
       </div>
     </aside>
