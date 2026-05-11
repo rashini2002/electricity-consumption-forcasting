@@ -131,6 +131,54 @@ npm run dev
 
 The panel has an editable API base URL at the top-right if your backend is hosted elsewhere.
 
+## 🧪 Local Development & Demo
+
+Quick checklist to run the full system locally and demonstrate the database to an examiner.
+
+1. Start MongoDB (example using a local dbpath):
+
+```bash
+# start mongod (adjust path to your mongod binary if needed)
+mongod --dbpath ~/mongo-data --bind_ip 127.0.0.1 --port 27017 &
+```
+
+2. Start the backend (FastAPI + Uvicorn):
+
+```bash
+cd backend
+source ../.venv/bin/activate   # or activate your virtualenv
+python -m uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+3. Start the frontend (Vite):
+
+```bash
+cd frontend
+npm install   # only once
+npm run dev
+```
+
+4. Open the frontend URL shown by Vite (for example `http://localhost:5175` or the network address printed in terminal).
+
+5. Demonstration flow for the examiner:
+- Register a test user via the UI (New user → Create Account).
+- Run a forecast in the dashboard to create a `prediction_history` record.
+- Show the stored data using one of these options:
+  - MongoDB Compass (GUI): connect to `mongodb://127.0.0.1:27017` and open the `gridpulse` database.
+  - CLI: open `mongosh` then run `use gridpulse` and `db.prediction_history.find().pretty()` to view records.
+
+6. Commit & push your changes (if needed):
+
+```bash
+git add -A
+git commit -m "Your message"
+git push origin main
+```
+
+Notes:
+- Backend default API base is `http://127.0.0.1:8000` and the frontend stores an editable API base in the header for demonstrations on other hosts.
+- If the dev server picks another port (Vite tries 5173→5174→...), use the Local URL printed by Vite (e.g. `http://localhost:5177`).
+
 ---
 
 ## 🔌 API (FastAPI)
