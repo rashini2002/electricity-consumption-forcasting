@@ -199,8 +199,8 @@ export default function Dashboard({ user, onLogout, historyItems, refreshHistory
                     : (openStep === 3 ? "active" : "");
                 return [
                   <div key={s} className={`step-node ${st}`} onClick={() => setOpenStep(n)}>
-                    <span style={{ fontFamily: "var(--mono)", fontSize: 10 }}>{String(n).padStart(2, "0")}</span>
-                    {s}
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600 }}>{String(n).padStart(2, "0")}</span>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: st === "active" ? "var(--cyan)" : "inherit" }}>{s}</span>
                   </div>,
                   i < 2 && <div key={`sep-${i}`} className="step-sep" />,
                 ];
@@ -220,14 +220,6 @@ export default function Dashboard({ user, onLogout, historyItems, refreshHistory
                   Logout
                 </button>
               </div>
-            )}
-            {modelInfo && (
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#4A6047", textAlign: "right" }}>
-                {modelInfo.forecast_model?.type || "LSTM"}
-                {" · "}
-                {modelInfo.forecast_model?.seq_len || 6} mo
-                {modelInfo.metrics?.mae_kwh ? ` · MAE ${Number(modelInfo.metrics.mae_kwh).toFixed(1)}` : ""}
-              </span>
             )}
           </div>
         </header>

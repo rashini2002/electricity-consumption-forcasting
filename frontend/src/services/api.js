@@ -1,22 +1,7 @@
 const FALLBACK_API_BASE = "http://127.0.0.1:8000";
 
 function resolveInitialApiBase() {
-  try {
-    if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE) {
-      return String(import.meta.env.VITE_API_BASE).replace(/\/$/, "");
-    }
-  } catch {
-    // ignore env detection issues and use runtime fallback
-  }
-
-  if (typeof window !== "undefined") {
-    const { protocol, hostname, origin } = window.location;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return `${protocol}//${hostname}:8000`;
-    }
-    return origin;
-  }
-
+  // Always use the known backend address
   return FALLBACK_API_BASE;
 }
 

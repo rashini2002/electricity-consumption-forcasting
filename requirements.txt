@@ -7,3 +7,4 @@ pandas
 numpy>=1.23.5,<2.0
 matplotlib
 seaborn
+pymongo

@@ -35,6 +35,7 @@ from backend.api.db import (
     clear_session,
     create_session,
     create_user,
+    get_db_info,
     get_user_from_token,
     init_db,
     list_prediction_history,
@@ -68,6 +69,14 @@ DEFAULT_CORS_ORIGINS = [
     "http://localhost:5500",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:5176",
+    "http://127.0.0.1:5176",
+    "http://localhost:5177",
+    "http://127.0.0.1:5177",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -93,7 +102,12 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     init_db()
-    logger.info("Authentication database initialized: %s", BASE_DIR / "data" / "gridpulse.sqlite3")
+    db_info = get_db_info()
+    logger.info(
+        "Authentication database initialized: %s/%s",
+        db_info["uri"],
+        db_info["database"],
+    )
 
 # ──────────────────────────────────────────────────────────────────
 # Model state

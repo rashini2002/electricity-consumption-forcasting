@@ -2,66 +2,67 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
+import os
 import secrets
-import sqlite3
+import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-DB_PATH = BASE_DIR / "data" / "gridpulse.sqlite3"
+from pymongo import DESCENDING, MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
+
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://127.0.0.1:27017")
+MONGODB_DB = os.getenv("MONGODB_DB", "gridpulse")
+
+_client: MongoClient | None = None
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _db_connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+def _get_client() -> MongoClient:
+    global _client
+    if _client is None:
+        _client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=4000)
+    return _client
+
+
+def _get_db() -> Database:
+    return _get_client()[MONGODB_DB]
+
+
+def _users() -> Collection:
+    return _get_db()["users"]
+
+
+def _sessions() -> Collection:
+    return _get_db()["sessions"]
+
+
+def _history() -> Collection:
+    return _get_db()["prediction_history"]
 
 
 def init_db() -> None:
-    with _db_connect() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                email TEXT NOT NULL UNIQUE,
-                password_salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
+    client = _get_client()
+    client.admin.command("ping")
 
-            CREATE TABLE IF NOT EXISTS sessions (
-                token TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                expires_at TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
+    _users().create_index("username", unique=True)
+    _users().create_index("email", unique=True)
 
-            CREATE TABLE IF NOT EXISTS prediction_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                month INTEGER,
-                district TEXT,
-                prediction_kwh REAL,
-                estimated_bill_lkr REAL,
-                request_payload TEXT NOT NULL,
-                response_payload TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
+    _sessions().create_index("token", unique=True)
+    _sessions().create_index("expires_at", expireAfterSeconds=0)
 
-            CREATE INDEX IF NOT EXISTS idx_history_user_created
-                ON prediction_history(user_id, created_at DESC);
-            """
-        )
+    _history().create_index([("user_id", DESCENDING), ("created_at", DESCENDING)])
+
+
+def get_db_info() -> dict:
+    return {
+        "uri": MONGODB_URI,
+        "database": MONGODB_DB,
+    }
 
 
 def _hash_password(password: str, salt_hex: str) -> str:
@@ -82,66 +83,66 @@ def create_user(username: str, email: str, password: str) -> dict:
     password_hash = _hash_password(password, salt_hex)
 
     try:
-        with _db_connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO users(username, email, password_salt, password_hash, created_at)
-                VALUES(?, ?, ?, ?, ?)
-                """,
-                (username, email, salt_hex, password_hash, _utc_now_iso()),
-            )
-            user_id = cur.lastrowid
-            row = conn.execute(
-                "SELECT id, username, email, created_at FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-    except sqlite3.IntegrityError as exc:
-        message = str(exc).lower()
-        if "username" in message:
+        now = _utc_now()
+        user_id = uuid.uuid4().hex
+        result = _users().insert_one(
+            {
+                "_id": user_id,
+                "username": username,
+                "email": email,
+                "password_salt": salt_hex,
+                "password_hash": password_hash,
+                "created_at": now,
+            }
+        )
+    except DuplicateKeyError as exc:
+        key_info = str(exc).lower()
+        if "username" in key_info:
             raise ValueError("Username already exists") from exc
-        if "email" in message:
+        if "email" in key_info:
             raise ValueError("Email already exists") from exc
         raise ValueError("User already exists") from exc
 
-    return dict(row)
+    return {
+        "id": user_id,
+        "username": username,
+        "email": email,
+        "created_at": now.isoformat(),
+    }
 
 
 def authenticate_user(email: str, password: str) -> dict | None:
     email = email.strip().lower()
-    with _db_connect() as conn:
-        row = conn.execute(
-            "SELECT id, username, email, password_salt, password_hash, created_at FROM users WHERE email = ?",
-            (email,),
-        ).fetchone()
+    row = _users().find_one({"email": email})
 
     if row is None:
         return None
 
-    expected_hash = _hash_password(password, row["password_salt"])
-    if not hmac.compare_digest(expected_hash, row["password_hash"]):
+    expected_hash = _hash_password(password, row.get("password_salt", ""))
+    if not hmac.compare_digest(expected_hash, row.get("password_hash", "")):
         return None
 
     return {
-        "id": row["id"],
-        "username": row["username"],
-        "email": row["email"],
-        "created_at": row["created_at"],
+        "id": str(row["_id"]),
+        "username": row.get("username", ""),
+        "email": row.get("email", ""),
+        "created_at": row.get("created_at", _utc_now()).isoformat(),
     }
 
 
-def create_session(user_id: int, ttl_hours: int = 72) -> str:
+def create_session(user_id: str, ttl_hours: int = 72) -> str:
     token = secrets.token_urlsafe(36)
-    now = datetime.now(timezone.utc)
+    now = _utc_now()
     expires_at = now + timedelta(hours=ttl_hours)
 
-    with _db_connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO sessions(token, user_id, expires_at, created_at)
-            VALUES(?, ?, ?, ?)
-            """,
-            (token, user_id, expires_at.isoformat(), now.isoformat()),
-        )
+    _sessions().insert_one(
+        {
+            "token": token,
+            "user_id": str(user_id),
+            "expires_at": expires_at,
+            "created_at": now,
+        }
+    )
 
     return token
 
@@ -150,91 +151,70 @@ def get_user_from_token(token: str) -> dict | None:
     if not token:
         return None
 
-    with _db_connect() as conn:
-        conn.execute(
-            "DELETE FROM sessions WHERE expires_at <= ?",
-            (_utc_now_iso(),),
-        )
-        row = conn.execute(
-            """
-            SELECT u.id, u.username, u.email, u.created_at
-            FROM sessions s
-            JOIN users u ON u.id = s.user_id
-            WHERE s.token = ? AND s.expires_at > ?
-            """,
-            (token, _utc_now_iso()),
-        ).fetchone()
+    session = _sessions().find_one({"token": token, "expires_at": {"$gt": _utc_now()}})
+    if session is None:
+        return None
 
-    return dict(row) if row else None
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+
+    user = _users().find_one({"_id": user_id})
+    if user is None:
+        return None
+
+    return {
+        "id": str(user["_id"]),
+        "username": user.get("username", ""),
+        "email": user.get("email", ""),
+        "created_at": user.get("created_at", _utc_now()).isoformat(),
+    }
 
 
 def clear_session(token: str) -> None:
     if not token:
         return
-    with _db_connect() as conn:
-        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    _sessions().delete_one({"token": token})
 
 
-def save_prediction_history(user_id: int, request_payload: dict, response_payload: dict) -> None:
+def save_prediction_history(user_id: str, request_payload: dict, response_payload: dict) -> None:
     forecast = response_payload.get("forecast", {})
     billing = response_payload.get("billing", {})
 
-    with _db_connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO prediction_history(
-                user_id,
-                month,
-                district,
-                prediction_kwh,
-                estimated_bill_lkr,
-                request_payload,
-                response_payload,
-                created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                request_payload.get("month"),
-                request_payload.get("district"),
-                forecast.get("prediction_kwh"),
-                billing.get("estimated_bill_lkr"),
-                json.dumps(request_payload),
-                json.dumps(response_payload),
-                _utc_now_iso(),
-            ),
-        )
+    _history().insert_one(
+        {
+            "user_id": str(user_id),
+            "month": request_payload.get("month"),
+            "district": request_payload.get("district"),
+            "prediction_kwh": forecast.get("prediction_kwh"),
+            "estimated_bill_lkr": billing.get("estimated_bill_lkr"),
+            "request_payload": request_payload,
+            "response_payload": response_payload,
+            "created_at": _utc_now(),
+        }
+    )
 
 
-def list_prediction_history(user_id: int, limit: int = 20) -> list[dict]:
+def list_prediction_history(user_id: str, limit: int = 20) -> list[dict]:
     safe_limit = max(1, min(int(limit), 200))
 
-    with _db_connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, month, district, prediction_kwh, estimated_bill_lkr, created_at,
-                   request_payload, response_payload
-            FROM prediction_history
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (user_id, safe_limit),
-        ).fetchall()
+    rows = list(
+        _history()
+        .find({"user_id": str(user_id)})
+        .sort("created_at", DESCENDING)
+        .limit(safe_limit)
+    )
 
-    history = []
-    for row in rows:
-        history.append(
-            {
-                "id": row["id"],
-                "month": row["month"],
-                "district": row["district"],
-                "prediction_kwh": row["prediction_kwh"],
-                "estimated_bill_lkr": row["estimated_bill_lkr"],
-                "created_at": row["created_at"],
-                "request_payload": json.loads(row["request_payload"]),
-                "response_payload": json.loads(row["response_payload"]),
-            }
-        )
-
-    return history
+    return [
+        {
+            "id": str(row["_id"]),
+            "month": row.get("month"),
+            "district": row.get("district"),
+            "prediction_kwh": row.get("prediction_kwh"),
+            "estimated_bill_lkr": row.get("estimated_bill_lkr"),
+            "created_at": row.get("created_at", _utc_now()).isoformat(),
+            "request_payload": row.get("request_payload", {}),
+            "response_payload": row.get("response_payload", {}),
+        }
+        for row in rows
+    ]

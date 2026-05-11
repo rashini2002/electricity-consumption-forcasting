@@ -24,7 +24,10 @@ export default function AuthPage({ onLogin, onRegister, loading, error }) {
         display: "grid",
         placeItems: "center",
         padding: 20,
-        background: "radial-gradient(circle at 20% 20%, #0f172a, #020617)",
+        backgroundImage: `linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 0.9) 100%), url('/images/login_page.jpg')`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
         color: "#e2e8f0",
         fontFamily: "Inter, sans-serif",
       }}
@@ -33,12 +36,13 @@ export default function AuthPage({ onLogin, onRegister, loading, error }) {
         onSubmit={handleSubmit}
         style={{
           width: "min(420px, 100%)",
-          background: "rgba(255,255,255,0.07)",
-          border: "1px solid rgba(226,232,240,0.12)",
+          background: "rgba(20, 20, 30, 0.4)",
+          border: "1px solid rgba(226, 232, 240, 0.2)",
           borderRadius: 18,
-          backdropFilter: "blur(18px)",
+          backdropFilter: "blur(20px)",
           padding: 24,
-          boxShadow: "0 20px 48px rgba(2, 6, 23, 0.45)",
+          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.6)",
+          WebkitBackdropFilter: "blur(20px)",
         }}
       >
         <h1 style={{ fontSize: 24, marginBottom: 8 }}>GridPulse</h1>

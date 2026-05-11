@@ -110,13 +110,14 @@ h1, h2 {
 }
 .logo-bolt svg { width: 16px; height: 16px; }
 .logo-name { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -.2px; }
-.logo-tag { font-family: var(--mono); font-size: 10px; color: var(--cyan); margin-left: 4px; }
+.logo-name { font-size: 24px; font-weight: 900; color: #fff; letter-spacing: -.2px; }
+.logo-tag { font-family: var(--mono); font-size: 12px; color: var(--cyan); margin-left: 6px; font-weight:700; }
 .header-mid { flex: 1; display: flex; justify-content: center; }
 .step-trail { display: flex; align-items: center; gap: 0; }
 .step-node {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 12px; border-radius: 99px;
-  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; border-radius: 99px;
+  font-family: var(--mono); font-size: 14px; color: var(--muted);
   transition: var(--transition); cursor: pointer;
 }
 .step-node.active {
