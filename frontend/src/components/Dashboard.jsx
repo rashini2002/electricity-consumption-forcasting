@@ -67,6 +67,7 @@ export default function Dashboard({ user, onLogout, historyItems, refreshHistory
   const kwhReady = [kwh.p1, kwh.p2, kwh.p3].every((value) => Number(value) > 0);
   const wxReady = !!weather;
   const peakColor = peakRatio > 0.7 ? "#D44040" : peakRatio > 0.55 ? "#E8A020" : "#7DC42B";
+  const statusLabel = typeof status === "string" ? status : JSON.stringify(status);
 
   useEffect(() => {
     let active = true;
@@ -268,7 +269,7 @@ export default function Dashboard({ user, onLogout, historyItems, refreshHistory
         </div>
 
         <footer className="footer">
-          <span className={statusErr ? "err" : "ok"}>{statusErr ? "⚠ " : "● "}{status}</span>
+          <span className={statusErr ? "err" : "ok"}>{statusErr ? "⚠ " : "● "}{statusLabel}</span>
           <span>Peak ratio: {peakRatio}</span>
           <span>LED ratio: {(ledRatio * 100).toFixed(0)}%</span>
           {weather && <span>Weather: {weather.temp}°C · {weather.humidity}% RH · {weather.rain}mm</span>}

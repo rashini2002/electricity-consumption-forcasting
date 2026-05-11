@@ -8,6 +8,22 @@ function resolveInitialApiBase() {
 let API_BASE = resolveInitialApiBase();
 let AUTH_TOKEN = "";
 
+function formatErrorDetail(detail, fallback) {
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail, null, 2);
+    } catch {
+      return fallback;
+    }
+  }
+
+  return fallback;
+}
+
 export function setApiBase(baseUrl) {
   API_BASE = (baseUrl || "").trim().replace(/\/$/, "") || FALLBACK_API_BASE;
 }
@@ -65,7 +81,10 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    const message = payload?.detail || payload?.message || `Request failed (${response.status})`;
+    const message = formatErrorDetail(
+      payload?.detail ?? payload?.message,
+      `Request failed (${response.status})`,
+    );
     throw new Error(message);
   }
 

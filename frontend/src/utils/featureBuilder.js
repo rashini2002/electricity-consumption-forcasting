@@ -27,6 +27,7 @@ export function expandHistoryToSixMonths(kwh) {
 
 export function buildDashboardPayload({ kwh, month, district, weather, behavior, peakRatio, ledRatio }) {
   const history6 = expandHistoryToSixMonths(kwh);
+  const homeHours = behavior.avg_hours_wfh > 0 ? 8 + behavior.avg_hours_wfh : 8;
 
   return {
     prev1_kwh: history6.p1,
@@ -57,7 +58,7 @@ export function buildDashboardPayload({ kwh, month, district, weather, behavior,
     has_solar: behavior.has_solar ? 1 : 0,
     water_heater_solar: behavior.water_heater_solar ? 1 : 0,
     led_ratio: ledRatio,
-    home_hours: behavior.avg_hours_wfh > 0 ? 8 + behavior.avg_hours_wfh : 8,
+    home_hours: Math.min(24, Math.max(0, homeHours)),
   };
 }
 
