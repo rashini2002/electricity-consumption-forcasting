@@ -387,6 +387,93 @@ def _recommendations(
     return tips[:5]
 
 
+def breakdown_monthly_to_daily_hourly(
+    monthly_kwh: float,
+    month: int,
+    peak_ratio: float,
+) -> dict:
+    """
+    Decompose monthly forecast into daily and hourly estimates.
+    
+    Args:
+        monthly_kwh: Total predicted monthly consumption
+        month: Month number (1-12) for seasonality
+        peak_ratio: Fraction of consumption in peak hours (0-1)
+    
+    Returns:
+        dict with daily_kwh, hourly_kwh, hourly_labels, daily_labels, weekly_avg
+    """
+    # Days in month
+    days_in_month = 30 if month in [4, 6, 9, 11] else (28 if month == 2 else 31)
+    
+    # Base daily average
+    daily_avg = monthly_kwh / days_in_month
+    
+    # Generate daily breakdown with weekday/weekend variation
+    daily_kwh = []
+    daily_labels = []
+    for day in range(1, days_in_month + 1):
+        # Weekday (1-5: Mon-Fri) vs weekend (6-7: Sat-Sun)
+        day_of_week = (day % 7)
+        is_weekend = day_of_week in [0, 6]
+        
+        # Weekend: -8% variation, Weekday: +5% variation
+        multiplier = 0.92 if is_weekend else 1.05
+        daily_value = daily_avg * multiplier
+        
+        daily_kwh.append(round(daily_value, 2))
+        day_name = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day_of_week]
+        daily_labels.append(f"{day_name} {day}")
+    
+    # Weekly average (7-day rolling)
+    weekly_avg = []
+    for week_start in range(0, days_in_month, 7):
+        week_end = min(week_start + 7, days_in_month)
+        week_sum = sum(daily_kwh[week_start:week_end])
+        week_avg = week_sum / (week_end - week_start)
+        weekly_avg.append(round(week_avg, 2))
+    
+    # Peak vs off-peak hourly distribution
+    # Peak hours: 6 AM - 9 PM (15 hours), Off-peak: 9 PM - 6 AM (9 hours)
+    # 30 days × 24 hours = 720 total hours
+    peak_hours_per_day = 15  # 6 AM to 9 PM
+    offpeak_hours_per_day = 9  # 9 PM to 6 AM
+    
+    daily_peak_kwh = daily_avg * peak_ratio
+    daily_offpeak_kwh = daily_avg * (1 - peak_ratio)
+    
+    hourly_peak = daily_peak_kwh / peak_hours_per_day if peak_hours_per_day > 0 else 0
+    hourly_offpeak = daily_offpeak_kwh / offpeak_hours_per_day if offpeak_hours_per_day > 0 else 0
+    
+    # Generate 24-hour hourly breakdown
+    hourly_kwh = []
+    hourly_labels = []
+    for hour in range(24):
+        if 6 <= hour < 21:  # 6 AM to 9 PM (peak)
+            hourly_value = hourly_peak
+            hour_label = f"{hour:02d}:00 (Peak)"
+        else:  # Off-peak
+            hourly_value = hourly_offpeak
+            hour_label = f"{hour:02d}:00 (Off-peak)"
+        
+        hourly_kwh.append(round(hourly_value, 2))
+        hourly_labels.append(hour_label)
+    
+    return {
+        "monthly_kwh": round(monthly_kwh, 2),
+        "daily_kwh": daily_kwh,
+        "daily_labels": daily_labels,
+        "days_in_month": days_in_month,
+        "daily_avg": round(daily_avg, 2),
+        "weekly_avg": weekly_avg,
+        "hourly_kwh": hourly_kwh,
+        "hourly_labels": hourly_labels,
+        "peak_ratio": round(peak_ratio, 3),
+        "peak_daily_kwh": round(daily_peak_kwh, 2),
+        "offpeak_daily_kwh": round(daily_offpeak_kwh, 2),
+    }
+
+
 def _top_factors(history_values: Sequence[float], beh_vals: dict, recent_mean_kwh: float) -> list[dict]:
     """Return top contributing factors for the explanation panel."""
     factors = []

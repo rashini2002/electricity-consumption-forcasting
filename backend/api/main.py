@@ -28,7 +28,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 # Import predictor only from this repository.
-from backend.src.predict import full_prediction
+from backend.src.predict import full_prediction, breakdown_monthly_to_daily_hourly
 from backend.src.predict import set_models
 from backend.api.db import (
     authenticate_user,
@@ -485,6 +485,49 @@ def predict(data: InputData, user: Optional[dict] = Depends(_optional_user)):
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         logger.exception("Prediction error")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/predict/daily-breakdown")
+def daily_breakdown(data: InputData):
+    """
+    Break down the monthly forecast into daily and hourly consumption estimates.
+    
+    Returns:
+        - daily_kwh: List of 30-31 daily consumption values
+        - daily_labels: Day names and dates
+        - hourly_kwh: 24-hour profile
+        - weekly_avg: 7-day moving average
+    """
+    _ensure_loaded()
+    
+    try:
+        # Get the monthly forecast first
+        monthly_forecast = full_prediction(
+            prev_values=data.prev_values(),
+            behavior_values=data.behavior_values(),
+        )
+        
+        monthly_kwh = monthly_forecast["forecast"]["prediction_kwh"]
+        month = data.month_value()
+        peak_ratio = data.peak_ratio
+        
+        # Generate daily/hourly breakdown
+        breakdown = breakdown_monthly_to_daily_hourly(
+            monthly_kwh=monthly_kwh,
+            month=month,
+            peak_ratio=peak_ratio,
+        )
+        
+        return {
+            "monthly_forecast": monthly_forecast,
+            "breakdown": breakdown,
+        }
+    
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Daily breakdown error")
         raise HTTPException(status_code=500, detail=str(exc))
 
 

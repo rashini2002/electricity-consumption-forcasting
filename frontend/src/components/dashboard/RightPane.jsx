@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 import {
   LineChart,
@@ -21,6 +21,7 @@ import { MONTH_NAMES, CLUSTER_STYLE, RISK_COLOR, TIPS_ICONS } from "./constants"
 import { fmtLKR, fmtK, clamp } from "./formatters";
 import { Spinner, ChipToggle, ChartTip } from "./ui";
 import { expandHistoryToSixMonths } from "../../utils/featureBuilder";
+import { predictDailyBreakdown } from "../../services/api";
 
 export default function RightPane({
   result,
@@ -39,6 +40,9 @@ export default function RightPane({
   deltaLoading,
   handleWhatIf,
 }) {
+  const [dailyBreakdown, setDailyBreakdown] = useState(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+
   const forecast = result?.forecast || {};
   const billing = result?.billing || {};
   const behaviorRes = result?.behavior || {};
@@ -87,6 +91,33 @@ export default function RightPane({
     value: Number(s.charge_lkr || 0),
     color: COLORS[i % COLORS.length],
   }));
+
+  // Fetch daily breakdown when result changes
+  useEffect(() => {
+    if (!result) {
+      setDailyBreakdown(null);
+      return;
+    }
+
+    const fetchBreakdown = async () => {
+      setBreakdownLoading(true);
+      try {
+        const payload = result._payload;
+        if (!payload) {
+          console.warn("No payload in result");
+          return;
+        }
+        const breakdown = await predictDailyBreakdown(payload);
+        setDailyBreakdown(breakdown);
+      } catch (err) {
+        console.error("Failed to fetch daily breakdown:", err);
+      } finally {
+        setBreakdownLoading(false);
+      }
+    };
+
+    fetchBreakdown();
+  }, [result]);
 
   const animationSeed = useMemo(() => {
     if (!result) return "idle";
@@ -183,6 +214,138 @@ export default function RightPane({
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {result && dailyBreakdown && (
+            <div className="card fade motion-stage stage-1-5" style={{ marginTop: 12 }}>
+              <div className="card-head">
+                <div className="card-title">Daily Consumption Estimate</div>
+                <div className="card-note">{dailyBreakdown.breakdown?.days_in_month || 30} days breakdown</div>
+              </div>
+              {breakdownLoading ? (
+                <div style={{ padding: "30px 0", textAlign: "center" }}>
+                  <Spinner />
+                </div>
+              ) : (
+                <div className="chart-wrap">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      key={`daily-${animationSeed}`}
+                      data={(dailyBreakdown.breakdown?.daily_kwh || []).map((kwh, i) => ({
+                        day: i + 1,
+                        kwh: kwh,
+                      }))}
+                      margin={{ left: -16, right: 10, top: 6, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.06)" />
+                      <XAxis
+                        dataKey="day"
+                        fontSize={9}
+                        tick={{ fill: "var(--text-sub)" }}
+                        stroke="none"
+                        interval={Math.max(0, Math.floor((dailyBreakdown.breakdown?.days_in_month || 30) / 10))}
+                      />
+                      <YAxis fontSize={10} tick={{ fill: "var(--text-sub)" }} stroke="none" unit=" kWh" />
+                      <Tooltip content={<ChartTip unit="kWh" />} />
+                      <Bar
+                        dataKey="kwh"
+                        fill="#1DB8A0"
+                        radius={[4, 4, 0, 0]}
+                        isAnimationActive
+                        animationBegin={320}
+                        animationDuration={900}
+                        animationEasing="ease-out"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 11, color: "var(--muted)" }}>
+                Daily avg: <strong style={{ color: "var(--text)" }}>{dailyBreakdown.breakdown?.daily_avg || 0} kWh</strong> · 
+                Peak: <strong style={{ color: "var(--text)" }}>{dailyBreakdown.breakdown?.peak_daily_kwh || 0} kWh</strong> · 
+                Off-peak: <strong style={{ color: "var(--text)" }}>{dailyBreakdown.breakdown?.offpeak_daily_kwh || 0} kWh</strong>
+              </div>
+            </div>
+          )}
+
+          {result && dailyBreakdown && (
+            <div className="card fade motion-stage stage-1-7" style={{ marginTop: 12 }}>
+              <div className="card-head">
+                <div className="card-title">24-Hour Peak/Off-Peak Pattern</div>
+                <div className="card-note">Hourly consumption distribution</div>
+              </div>
+              {breakdownLoading ? (
+                <div style={{ padding: "30px 0", textAlign: "center" }}>
+                  <Spinner />
+                </div>
+              ) : (
+                <div className="chart-wrap">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      key={`hourly-${animationSeed}`}
+                      data={(dailyBreakdown.breakdown?.hourly_kwh || []).map((kwh, i) => ({
+                        hour: i,
+                        kwh: kwh,
+                        isPeak: i >= 6 && i < 21,
+                      }))}
+                      margin={{ left: -16, right: 10, top: 6, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.06)" />
+                      <XAxis
+                        dataKey="hour"
+                        fontSize={9}
+                        tick={{ fill: "var(--text-sub)" }}
+                        stroke="none"
+                        tickFormatter={(h) => `${String(h).padStart(2, "0")}:00`}
+                        interval={2}
+                      />
+                      <YAxis fontSize={10} tick={{ fill: "var(--text-sub)" }} stroke="none" unit=" kWh" />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (active && payload?.[0]) {
+                            const data = payload[0].payload;
+                            const isPeak = data.isPeak ? " (Peak)" : " (Off-peak)";
+                            return (
+                              <div style={{ background: "var(--surface)", padding: "8px", borderRadius: "4px", border: "1px solid var(--border)" }}>
+                                <p style={{ margin: 0, fontSize: 11 }}>{String(data.hour).padStart(2, "0")}:00{isPeak}</p>
+                                <p style={{ margin: 0, fontSize: 12, fontWeight: "bold", color: data.isPeak ? "#f59e0b" : "#22d3ee" }}>
+                                  {data.kwh?.toFixed(2)} kWh
+                                </p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar
+                        dataKey="kwh"
+                        radius={[3, 3, 0, 0]}
+                        isAnimationActive
+                        animationBegin={400}
+                        animationDuration={1000}
+                        animationEasing="ease-out"
+                      >
+                        {(dailyBreakdown.breakdown?.hourly_kwh || []).map((_, i) => (
+                          <Cell key={`cell-${i}`} fill={i >= 6 && i < 21 ? "#f59e0b" : "#06b6d4"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)" }}>
+                <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
+                  <span>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", background: "#f59e0b", borderRadius: "2px", marginRight: "4px", verticalAlign: "middle" }} />
+                    Peak: 6 AM – 9 PM
+                  </span>
+                  <span>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", background: "#06b6d4", borderRadius: "2px", marginRight: "4px", verticalAlign: "middle" }} />
+                    Off-peak: 9 PM – 6 AM
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 

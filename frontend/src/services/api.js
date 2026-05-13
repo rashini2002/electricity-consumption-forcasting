@@ -115,6 +115,14 @@ export function predictWhatIf(base, overrides) {
   });
 }
 
+export function predictDailyBreakdown(data) {
+  return request("/predict/daily-breakdown", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function registerUser({ username, email, password }) {
   return request("/auth/register", {
     method: "POST",
