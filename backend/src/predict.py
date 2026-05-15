@@ -63,15 +63,41 @@ TIME_FEATURE_WEIGHTS = {
     "lag_3": 1.10,
 }
 
-# CEB 2024 domestic tariff — 6 slabs (Cell 32)
-CEB_SLABS = [
-    (30,           8.00,  "0-30 units"),
-    (60,          10.00,  "31-60 units"),
-    (90,          16.00,  "61-90 units"),
-    (120,         25.00,  "91-120 units"),
-    (180,         45.00,  "121-180 units"),
-    (float("inf"), 75.00, "181+ units"),
-]
+# CEB domestic tariff effective 11 May 2026.
+CEB_MONTHLY_TARIFF_SYSTEMS = {
+    "very_low": {
+        "upper_bound": 60.0,
+        "fixed_charge": 0.0,
+        "slabs": [
+            (30.0, 5.00, "0-30 kWh"),
+            (60.0, 9.00, "31-60 kWh"),
+        ],
+    },
+    "medium": {
+        "upper_bound": 180.0,
+        "fixed_charge": 1000.0,
+        "slabs": [
+            (60.0, 14.00, "0-60 kWh"),
+            (90.0, 20.00, "61-90 kWh"),
+            (120.0, 28.00, "91-120 kWh"),
+            (180.0, 44.00, "121-180 kWh"),
+        ],
+    },
+    "high": {
+        "upper_bound": float("inf"),
+        "fixed_charge": 2500.0,
+        "slabs": [
+            (180.0, 32.50, "0-180 kWh"),
+            (float("inf"), 100.00, "Above 180 kWh"),
+        ],
+    },
+}
+
+CEB_TOU_RATES = {
+    "peak": 106.00,
+    "day": 47.00,
+    "off_peak": 33.00,
+}
 
 # ──────────────────────────────────────────────────────────────────
 # Global model state (loaded once at startup)
@@ -300,24 +326,59 @@ def _apply_product_calibration(model_pred_kwh: np.ndarray, naive_kwh: np.ndarray
 
 
 def _calculate_bill(kwh: float) -> dict:
-    """CEB 2024 domestic tariff — all 6 slabs (Cell 32)."""
+    """CEB domestic monthly tariff effective 11 May 2026."""
     kwh = max(0.0, float(kwh))
-    total, breakdown, remaining, prev = 0.0, [], kwh, 0
-    for limit, rate, label in CEB_SLABS:
+
+    if kwh <= 60.0:
+        system_key = "very_low"
+    elif kwh <= 180.0:
+        system_key = "medium"
+    else:
+        system_key = "high"
+
+    system = CEB_MONTHLY_TARIFF_SYSTEMS[system_key]
+    remaining = kwh
+    prev_limit = 0.0
+    energy_charge = 0.0
+    breakdown = []
+
+    for limit, rate, label in system["slabs"]:
         if remaining <= 0:
             break
-        units  = min(remaining, limit - prev)
-        charge = units * rate
-        total += charge
-        breakdown.append({
-            "slab":              label,
-            "units":             round(units, 2),
-            "rate_lkr_per_unit": rate,
-            "charge_lkr":        round(charge, 2),
-        })
-        remaining -= units
-        prev = limit
-    return {"total_lkr": round(total, 2), "slab_breakdown": breakdown}
+        slab_units = min(remaining, limit - prev_limit)
+        slab_charge = slab_units * rate
+        energy_charge += slab_charge
+        breakdown.append(
+            {
+                "slab": label,
+                "units": round(slab_units, 2),
+                "rate_lkr_per_unit": rate,
+                "charge_lkr": round(slab_charge, 2),
+            }
+        )
+        remaining -= slab_units
+        prev_limit = limit
+
+    fixed_charge = float(system.get("fixed_charge", 0.0))
+    total = energy_charge + fixed_charge
+
+    if fixed_charge > 0:
+        breakdown.append(
+            {
+                "slab": "Fixed charge",
+                "units": 1,
+                "rate_lkr_per_unit": fixed_charge,
+                "charge_lkr": round(fixed_charge, 2),
+            }
+        )
+
+    return {
+        "tariff_system": system_key,
+        "energy_charge_lkr": round(energy_charge, 2),
+        "fixed_charge_lkr": round(fixed_charge, 2),
+        "total_lkr": round(total, 2),
+        "slab_breakdown": breakdown,
+    }
 
 
 def _fallback_predict_kwh(history_values: Sequence[float], beh_vals: dict) -> float:
