@@ -433,31 +433,139 @@ def breakdown_monthly_to_daily_hourly(
         week_avg = week_sum / (week_end - week_start)
         weekly_avg.append(round(week_avg, 2))
     
-    # Peak vs off-peak hourly distribution
-    # Peak hours: 6 AM - 9 PM (15 hours), Off-peak: 9 PM - 6 AM (9 hours)
-    # 30 days × 24 hours = 720 total hours
-    peak_hours_per_day = 15  # 6 AM to 9 PM
-    offpeak_hours_per_day = 9  # 9 PM to 6 AM
-    
+    # Time-of-use style windows
+    # Morning Peak: 06:00-08:59
+    # Day Shoulder: 05:00-05:59 and 09:00-15:59
+    # Evening Peak: 16:00-21:59
+    # Off-Peak: 22:00-04:59
+    peak_ratio = max(0.0, min(1.0, float(peak_ratio)))
+
+    period_hours = {
+        "morning_peak": [6, 7, 8],
+        # Day shoulder: daytime middle hours (exclude 5am)
+        "day_shoulder": [9, 10, 11, 12, 13, 14, 15],
+        "evening_peak": [16, 17, 18, 19, 20, 21],
+        # Off-peak includes late night and early morning (include 5am)
+        "off_peak": [22, 23, 0, 1, 2, 3, 4, 5],
+    }
+
+    # Split peak budget across morning/evening peaks.
+    # Slightly more weight in evening due to residential return-home demand.
+    morning_peak_share = 0.40
+    evening_peak_share = 0.60
+
+    # Split non-peak budget across day shoulder and off-peak.
+    day_shoulder_share = 0.60
+    off_peak_share = 0.40
+
     daily_peak_kwh = daily_avg * peak_ratio
-    daily_offpeak_kwh = daily_avg * (1 - peak_ratio)
-    
-    hourly_peak = daily_peak_kwh / peak_hours_per_day if peak_hours_per_day > 0 else 0
-    hourly_offpeak = daily_offpeak_kwh / offpeak_hours_per_day if offpeak_hours_per_day > 0 else 0
-    
+    daily_nonpeak_kwh = daily_avg * (1 - peak_ratio)
+
+    period_daily_kwh = {
+        "morning_peak": daily_peak_kwh * morning_peak_share,
+        "evening_peak": daily_peak_kwh * evening_peak_share,
+        "day_shoulder": daily_nonpeak_kwh * day_shoulder_share,
+        "off_peak": daily_nonpeak_kwh * off_peak_share,
+    }
+
+    # Relative shape within each period (not absolute kWh).
+    period_profiles = {
+        "morning_peak": {
+            6: 0.95,
+            7: 1.10,
+            8: 0.95,
+        },
+        "day_shoulder": {
+            5: 0.80,
+            9: 1.00,
+            10: 1.02,
+            11: 1.00,
+            12: 0.96,
+            13: 0.95,
+            14: 0.98,
+            15: 1.02,
+        },
+        "evening_peak": {
+            16: 0.90,
+            17: 1.05,
+            18: 1.15,
+            19: 1.15,
+            20: 1.05,
+            21: 0.90,
+        },
+        "off_peak": {
+            22: 1.15,
+            23: 1.05,
+            0: 0.95,
+            1: 0.85,
+            2: 0.80,
+            3: 0.82,
+            4: 0.90,
+            5: 1.08,
+        },
+    }
+
+    period_weight_sum = {
+        key: sum(profile[h] for h in hours)
+        for key, (profile, hours) in {
+            "morning_peak": (period_profiles["morning_peak"], period_hours["morning_peak"]),
+            "day_shoulder": (period_profiles["day_shoulder"], period_hours["day_shoulder"]),
+            "evening_peak": (period_profiles["evening_peak"], period_hours["evening_peak"]),
+            "off_peak": (period_profiles["off_peak"], period_hours["off_peak"]),
+        }.items()
+    }
+
+    hour_to_period = {}
+    for period_name, hours in period_hours.items():
+        for h in hours:
+            hour_to_period[h] = period_name
+
     # Generate 24-hour hourly breakdown
     hourly_kwh = []
     hourly_labels = []
+    hourly_periods = []
     for hour in range(24):
-        if 6 <= hour < 21:  # 6 AM to 9 PM (peak)
-            hourly_value = hourly_peak
-            hour_label = f"{hour:02d}:00 (Peak)"
-        else:  # Off-peak
-            hourly_value = hourly_offpeak
+        period_name = hour_to_period.get(hour, "day_shoulder")
+        weights = period_profiles[period_name]
+        denom = period_weight_sum[period_name]
+        share = weights[hour] / denom if denom > 0 else 0.0
+        hourly_value = period_daily_kwh[period_name] * share
+
+        if period_name == "morning_peak":
+            hour_label = f"{hour:02d}:00 (Morning Peak)"
+        elif period_name == "evening_peak":
+            hour_label = f"{hour:02d}:00 (Evening Peak)"
+        elif period_name == "off_peak":
             hour_label = f"{hour:02d}:00 (Off-peak)"
-        
+        else:
+            hour_label = f"{hour:02d}:00 (Day Shoulder)"
+
         hourly_kwh.append(round(hourly_value, 2))
         hourly_labels.append(hour_label)
+        hourly_periods.append(period_name)
+
+    period_summary = {
+        "morning_peak": {
+            "label": "Morning Peak (6 AM - 9 AM)",
+            "daily_kwh": round(period_daily_kwh["morning_peak"], 2),
+            "avg_hourly_kwh": round(period_daily_kwh["morning_peak"] / max(1, len(period_hours["morning_peak"])), 3),
+        },
+        "day_shoulder": {
+            "label": "Day Shoulder (9 AM - 4 PM)",
+            "daily_kwh": round(period_daily_kwh["day_shoulder"], 2),
+            "avg_hourly_kwh": round(period_daily_kwh["day_shoulder"] / max(1, len(period_hours["day_shoulder"])), 3),
+        },
+        "evening_peak": {
+            "label": "Evening Peak (4 PM - 10 PM)",
+            "daily_kwh": round(period_daily_kwh["evening_peak"], 2),
+            "avg_hourly_kwh": round(period_daily_kwh["evening_peak"] / max(1, len(period_hours["evening_peak"])), 3),
+        },
+        "off_peak": {
+            "label": "Off-peak (10 PM - 5 AM)",
+            "daily_kwh": round(period_daily_kwh["off_peak"], 2),
+            "avg_hourly_kwh": round(period_daily_kwh["off_peak"] / max(1, len(period_hours["off_peak"])), 3),
+        },
+    }
     
     return {
         "monthly_kwh": round(monthly_kwh, 2),
@@ -468,9 +576,11 @@ def breakdown_monthly_to_daily_hourly(
         "weekly_avg": weekly_avg,
         "hourly_kwh": hourly_kwh,
         "hourly_labels": hourly_labels,
+        "hourly_periods": hourly_periods,
+        "period_summary": period_summary,
         "peak_ratio": round(peak_ratio, 3),
         "peak_daily_kwh": round(daily_peak_kwh, 2),
-        "offpeak_daily_kwh": round(daily_offpeak_kwh, 2),
+        "offpeak_daily_kwh": round(period_daily_kwh["off_peak"], 2),
     }
 
 

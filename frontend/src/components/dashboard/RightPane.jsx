@@ -135,6 +135,32 @@ export default function RightPane({
     risk.score,
   ]);
 
+  const hourlyStats = useMemo(() => {
+    const summary = dailyBreakdown?.breakdown?.period_summary;
+    if (summary && typeof summary === "object") {
+      return {
+        morning: summary.morning_peak,
+        shoulder: summary.day_shoulder,
+        evening: summary.evening_peak,
+        offPeak: summary.off_peak,
+      };
+    }
+
+    // Backward-compatible fallback for old API shape
+    const hours = dailyBreakdown?.breakdown?.hourly_kwh || [];
+    if (!hours.length) return null;
+    const peakHours = hours.filter((_, i) => i >= 6 && i < 21);
+    const offPeakHours = hours.filter((_, i) => !(i >= 6 && i < 21));
+    const peakAvg = peakHours.length ? peakHours.reduce((a, b) => a + Number(b || 0), 0) / peakHours.length : 0;
+    const offPeakAvg = offPeakHours.length ? offPeakHours.reduce((a, b) => a + Number(b || 0), 0) / offPeakHours.length : 0;
+    return {
+      morning: { label: "Peak", avg_hourly_kwh: peakAvg, daily_kwh: peakAvg * peakHours.length },
+      shoulder: null,
+      evening: null,
+      offPeak: { label: "Off-peak", avg_hourly_kwh: offPeakAvg, daily_kwh: offPeakAvg * offPeakHours.length },
+    };
+  }, [dailyBreakdown]);
+
   return (
     <section className="right-pane pane" style={{ paddingBottom: 52 }}>
       {!result ? (
@@ -273,7 +299,7 @@ export default function RightPane({
             <div className="card fade motion-stage stage-1-7" style={{ marginTop: 12 }}>
               <div className="card-head">
                 <div className="card-title">24-Hour Peak/Off-Peak Pattern</div>
-                <div className="card-note">Hourly consumption distribution</div>
+                <div className="card-note">Hourly distribution with visible peak/off-peak contrast</div>
               </div>
               {breakdownLoading ? (
                 <div style={{ padding: "30px 0", textAlign: "center" }}>
@@ -287,7 +313,7 @@ export default function RightPane({
                       data={(dailyBreakdown.breakdown?.hourly_kwh || []).map((kwh, i) => ({
                         hour: i,
                         kwh: kwh,
-                        isPeak: i >= 6 && i < 21,
+                        period: (dailyBreakdown.breakdown?.hourly_periods || [])[i] || (i >= 6 && i < 21 ? "evening_peak" : "off_peak"),
                       }))}
                       margin={{ left: -16, right: 10, top: 6, bottom: 0 }}
                     >
@@ -305,11 +331,23 @@ export default function RightPane({
                         content={({ active, payload }) => {
                           if (active && payload?.[0]) {
                             const data = payload[0].payload;
-                            const isPeak = data.isPeak ? " (Peak)" : " (Off-peak)";
+                            const periodLabelMap = {
+                              morning_peak: " (Morning Peak)",
+                              day_shoulder: " (Day Shoulder)",
+                              evening_peak: " (Evening Peak)",
+                              off_peak: " (Off-peak)",
+                            };
+                            const labelSuffix = periodLabelMap[data.period] || "";
+                            const periodColorMap = {
+                              morning_peak: "#f59e0b",
+                              day_shoulder: "#84cc16",
+                              evening_peak: "#ef4444",
+                              off_peak: "#06b6d4",
+                            };
                             return (
                               <div style={{ background: "var(--surface)", padding: "8px", borderRadius: "4px", border: "1px solid var(--border)" }}>
-                                <p style={{ margin: 0, fontSize: 11 }}>{String(data.hour).padStart(2, "0")}:00{isPeak}</p>
-                                <p style={{ margin: 0, fontSize: 12, fontWeight: "bold", color: data.isPeak ? "#f59e0b" : "#22d3ee" }}>
+                                <p style={{ margin: 0, fontSize: 11 }}>{String(data.hour).padStart(2, "0")}:00{labelSuffix}</p>
+                                <p style={{ margin: 0, fontSize: 12, fontWeight: "bold", color: periodColorMap[data.period] || "#22d3ee" }}>
                                   {data.kwh?.toFixed(2)} kWh
                                 </p>
                               </div>
@@ -327,23 +365,75 @@ export default function RightPane({
                         animationEasing="ease-out"
                       >
                         {(dailyBreakdown.breakdown?.hourly_kwh || []).map((_, i) => (
-                          <Cell key={`cell-${i}`} fill={i >= 6 && i < 21 ? "#f59e0b" : "#06b6d4"} />
+                          <Cell
+                            key={`cell-${i}`}
+                            fill={{
+                              morning_peak: "#f59e0b",
+                              day_shoulder: "#84cc16",
+                              evening_peak: "#ef4444",
+                              off_peak: "#06b6d4",
+                            }[(dailyBreakdown.breakdown?.hourly_periods || [])[i] || (i >= 6 && i < 21 ? "evening_peak" : "off_peak")] || "#22d3ee"}
+                          />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
+              {!!hourlyStats && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: "8px 10px",
+                    border: "1px solid var(--surface2)",
+                    borderRadius: 8,
+                    background: "rgba(0,0,0,0.08)",
+                    fontFamily: "var(--mono)",
+                    fontSize: 11,
+                    color: "var(--muted)",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: "6px 12px",
+                  }}
+                >
+                  <div>
+                    Morning peak avg: <strong style={{ color: "var(--text)" }}>{Number(hourlyStats.morning?.avg_hourly_kwh || 0).toFixed(2)} kWh</strong>
+                  </div>
+                  <div>
+                    Evening peak avg: <strong style={{ color: "var(--text)" }}>{Number(hourlyStats.evening?.avg_hourly_kwh || 0).toFixed(2)} kWh</strong>
+                  </div>
+                  <div>
+                    Day shoulder avg: <strong style={{ color: "var(--text)" }}>{Number(hourlyStats.shoulder?.avg_hourly_kwh || 0).toFixed(2)} kWh</strong>
+                  </div>
+                  <div>
+                    Off-peak avg: <strong style={{ color: "var(--text)" }}>{Number(hourlyStats.offPeak?.avg_hourly_kwh || 0).toFixed(2)} kWh</strong>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1", fontSize: 10, color: "var(--muted2)" }}>
+                    Daily energy split: Morning {Number(hourlyStats.morning?.daily_kwh || 0).toFixed(1)} · Shoulder {Number(hourlyStats.shoulder?.daily_kwh || 0).toFixed(1)} · Evening {Number(hourlyStats.evening?.daily_kwh || 0).toFixed(1)} · Off-peak {Number(hourlyStats.offPeak?.daily_kwh || 0).toFixed(1)} kWh
+                  </div>
+                </div>
+              )}
               <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)" }}>
                 <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
                   <span>
                     <span style={{ display: "inline-block", width: "12px", height: "12px", background: "#f59e0b", borderRadius: "2px", marginRight: "4px", verticalAlign: "middle" }} />
-                    Peak: 6 AM – 9 PM
+                    Morning peak: 6 AM - 9 AM
+                  </span>
+                  <span>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", background: "#84cc16", borderRadius: "2px", marginRight: "4px", verticalAlign: "middle" }} />
+                    Day shoulder: 9 AM - 4 PM
+                  </span>
+                  <span>
+                    <span style={{ display: "inline-block", width: "12px", height: "12px", background: "#ef4444", borderRadius: "2px", marginRight: "4px", verticalAlign: "middle" }} />
+                    Evening peak: 4 PM - 10 PM
                   </span>
                   <span>
                     <span style={{ display: "inline-block", width: "12px", height: "12px", background: "#06b6d4", borderRadius: "2px", marginRight: "4px", verticalAlign: "middle" }} />
-                    Off-peak: 9 PM – 6 AM
+                    Off-peak: 10 PM - 5 AM
                   </span>
+                </div>
+                <div style={{ marginTop: 6, textAlign: "center" }}>
+                  Note: values are shaped across each time band, not flat averages.
                 </div>
               </div>
             </div>
